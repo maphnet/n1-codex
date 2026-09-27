@@ -7,18 +7,14 @@ Run `n1_config_val '.localTesting.enabled'` (default: `true`).
 source ~/.n1/preamble.sh
 GATE_ENABLED=$(n1_config_val '.localTesting.enabled' 2>/dev/null || echo 'true')
 n1_record_decision local-testing-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"localTesting.enabled"}' "enabled=${GATE_ENABLED:-true}"
+echo "LOCAL_TESTING_MODE=$(n1_resolve_local_testing_mode "$(git rev-parse --show-toplevel)")"
 ```
 
 > The gate key (`localTesting.enabled`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
 
 **If `localTesting.enabled` is `false`:** Skip to Step 10 (PR CREATION).
 
-**Mode resolution:** Run via Bash:
-```bash
-source ~/.n1/preamble.sh
-echo "LOCAL_TESTING_MODE=$(n1_resolve_local_testing_mode "$(git rev-parse --show-toplevel)")"
-```
-Precedence (in `lib/config.sh`): explicit `localTesting.mode` > `localTesting.autoLive: true` plus a root compose file (`compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`) -> `"live"` > non-empty `localTesting.startCommand` -> `"live"` > `"test"`.
+**Mode resolution:** `LOCAL_TESTING_MODE` was resolved above via `n1_resolve_local_testing_mode`. Precedence (in `lib/config.sh`): explicit `localTesting.mode` > `localTesting.autoLive: true` plus a root compose file (`compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`) -> `"live"` > non-empty `localTesting.startCommand` -> `"live"` > `"test"`.
 
 Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
 
