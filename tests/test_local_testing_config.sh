@@ -46,4 +46,29 @@ rm "$REPO/docker-compose.yaml"
 cfg '{"localTesting":{"startCommand":"npm run dev"}}'
 assert_eq "M9: startCommand still infers live (unchanged)" "live" "$(mode)"
 
+# ---- worktree.copyFiles ----
+SRC="$T/a/src"; WT="$T/b/wt"
+mkdir -p "$SRC/nested" "$WT"
+git -C "$WT" init -q
+printf '.env\n.env.local\n' > "$WT/.gitignore"
+echo secret > "$SRC/.env"
+echo local > "$SRC/nested/.env.local"
+echo plain > "$SRC/notignored.txt"
+echo out > "$T/a/escape"
+echo abs > "$T/a/abs.env"
+cfg "{\"worktree\":{\"copyFiles\":[\".env\",\"nested/.env.local\",\"missing.env\",\"notignored.txt\",\"../escape\",\"$T/a/abs.env\"]}}"
+
+assert_eq "C1: copies only present, ignored, safe entries" "2" "$(n1_copy_worktree_files "$SRC" "$WT" 2>/dev/null)"
+assert_eq "C2: .env content copied" "secret" "$(cat "$WT/.env")"
+assert_eq "C3: nested entry copied" "local" "$(cat "$WT/nested/.env.local")"
+assert_eq "C4: non-ignored file skipped" "no" "$([ -e "$WT/notignored.txt" ] && echo yes || echo no)"
+assert_eq "C5: '..' and absolute entries rejected explicitly" "2" "$(n1_copy_worktree_files "$SRC" "$WT" 2>&1 >/dev/null | grep -c 'rejected')"
+assert_eq "C6: nothing written outside the worktree" "no" "$([ -e "$T/b/escape" ] || [ -e "$WT$T" ] && echo yes || echo no)"
+echo changed > "$SRC/.env"
+assert_eq "C7: re-run copies nothing (missing-only)" "0" "$(n1_copy_worktree_files "$SRC" "$WT" 2>/dev/null)"
+assert_eq "C8: existing destination not overwritten" "secret" "$(cat "$WT/.env")"
+assert_eq "C9: copied files invisible to git (never committed)" "?? .gitignore" "$(git -C "$WT" status --porcelain)"
+cfg '{}'
+assert_eq "C10: no copyFiles key -> 0" "0" "$(n1_copy_worktree_files "$SRC" "$WT")"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

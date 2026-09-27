@@ -604,6 +604,35 @@ n1_resolve_local_testing_mode() {
     printf 'test'
 }
 
+n1_copy_worktree_files() {
+    # Usage: n1_copy_worktree_files <main_checkout> <worktree_path>
+    # Copies each worktree.copyFiles entry (relative file path, e.g. ".env") from the main
+    # checkout into a new worktree. Copies only when the destination is missing and the path is
+    # git-ignored in the worktree (so it can never be committed). Rejects absolute paths and
+    # '..' segments (config is user-authored, but an escape would write outside the worktree).
+    # Missing sources are skipped. Prints the number of files copied; always returns 0.
+    local src="$1" dst="$2" file f n=0
+    file=$(n1_config_file)
+    if [ ! -f "$file" ] || ! command -v jq >/dev/null 2>&1; then printf '0'; return 0; fi
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in
+            /*|[A-Za-z]:*) echo "N1: worktree.copyFiles entry rejected (absolute path): $f" >&2; continue ;;
+        esac
+        case "/$f/" in
+            */../*) echo "N1: worktree.copyFiles entry rejected ('..' segment): $f" >&2; continue ;;
+        esac
+        [ -e "$dst/$f" ] && continue
+        [ -f "$src/$f" ] || continue
+        if ! git -C "$dst" check-ignore -q -- "$f" 2>/dev/null; then
+            echo "N1: worktree.copyFiles entry skipped (not git-ignored in worktree): $f" >&2
+            continue
+        fi
+        mkdir -p "$(dirname "$dst/$f")" && cp -p "$src/$f" "$dst/$f" && n=$((n + 1))
+    done < <(jq -r '.worktree.copyFiles // [] | .[]? | strings' "$file" 2>/dev/null)
+    printf '%s' "$n"
+}
+
 n1_ci_checks_val() {
     # Usage: n1_ci_checks_val <key>
     # Keys: enabled, maxFixAttempts, confidenceThreshold
