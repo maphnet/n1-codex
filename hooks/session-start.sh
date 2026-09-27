@@ -333,7 +333,7 @@ elif [ "$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")" = "false" ] || 
 
 LOCAL TESTING OFFER (live Docker e2e is off for this project; ${lt_f} found in the repo root):
 If the user asks for local, docker, or e2e testing (any phrasing), first perform the test they asked for. Then ask once whether to enable live local testing so N1 runs it automatically after review.
-- Yes: run \`source ~/.n1/preamble.sh; f=\$(n1_config_file); jq '.localTesting.enabled = true | .localTesting.autoLive = true' \"\$f\" > \"\$f.tmp\" && mv \"\$f.tmp\" \"\$f\"\`
+- Yes: run \`source ~/.n1/preamble.sh; f=\$(n1_config_file); jq '.localTesting.enabled = true | .localTesting.autoLive = true' \"\$f\" > \"\$f.tmp\" && cat \"\$f.tmp\" > \"\$f\" && rm -f \"\$f.tmp\"\`
 - No: do not offer again in this conversation.
 - Only if an N1 ticket is active, append an audit row to the Decision Ledger in its overview.md: | local-testing | scope | C | [asked] | Enable live local testing? | <yes/no> | - | user answer to enable offer | --- |
 Never offer when the user did not ask for local/docker/e2e testing."

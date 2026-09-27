@@ -292,7 +292,7 @@ Bounded fix loop (live/test modes): `localTesting.maxFixAttempts` (default 3). O
 
 The QA dedup gate (skip when every QA Runner command is pytest) applies in `"test"` mode only. `localTesting.teardownCommand`, when set, runs in the 9c cleanup step on every attempt, including failed ones.
 
-**Enable offer:** when a root compose file exists but live testing would not run (`enabled: false` or resolved mode is not `"live"`), `hooks/session-start.sh` injects a `LOCAL TESTING OFFER` instruction: if the user asks for local/docker/e2e testing, the orchestrator performs that test, then offers once to enable live testing (writes `enabled: true`, `autoLive: true`, removes `mode`). A decline is not re-offered in that conversation; when a ticket is active, the answer is logged as a Decision Ledger audit row. Nothing is injected when live testing is already on.
+**Enable offer:** when a root compose file exists but live testing would not run (`enabled: false` or resolved mode is not `"live"`), `hooks/session-start.sh` injects a `LOCAL TESTING OFFER` instruction: if the user asks for local/docker/e2e testing, the orchestrator performs that test, then offers once to enable live testing (writes `enabled: true`, `autoLive: true`; never touches `mode`). A decline is not re-offered in that conversation; when a ticket is active, the answer is logged as a Decision Ledger audit row. Nothing is injected when live testing is already on.
 
 Local testing owns all live-app verification -- starting services, running e2e suites, hitting real endpoints. QA owns the unit test suite. These scopes are independently defined; neither is conditional on the other being enabled.
 
