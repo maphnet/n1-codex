@@ -316,6 +316,30 @@ RELATED PROJECTS ROUTING (from N1 config — explore these repos when tasks invo
     fi
 fi
 
+# Local-testing enable offer (NP-222): only when live testing would not run for a reason the user
+# hasn't already chosen deliberately -- enabled=false, or (mode unset AND autoLive != true). When
+# localTesting.mode is explicitly set to a non-"live" value, that's a deliberate choice: never
+# offer, never touch it. This gating guarantees mode is either absent or already "live" whenever
+# we do offer, so accepting only ever needs to write enabled/autoLive -- never mode.
+# Decline memory is this instruction's own lifetime (one conversation) -- no state file.
+lt_dir=$(git -C "${HOOK_CWD:-$PWD}" rev-parse --show-toplevel 2>/dev/null || printf '%s' "${HOOK_CWD:-$PWD}")
+lt_mode_val=$(n1_config_val '.localTesting.mode' "$CONFIG_FILE")
+if [ -n "$lt_mode_val" ] && [ "$lt_mode_val" != "live" ]; then
+    : # explicit non-live mode -- deliberate user choice, never offer
+elif [ "$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")" = "false" ] || { [ -z "$lt_mode_val" ] && [ "$(n1_config_val '.localTesting.autoLive' "$CONFIG_FILE")" != "true" ]; }; then
+    lt_f=$(n1_compose_file "$lt_dir") || lt_f=""
+    if [ -n "$lt_f" ]; then
+        context="${context}
+
+LOCAL TESTING OFFER (live Docker e2e is off for this project; ${lt_f} found in the repo root):
+If the user asks for local, docker, or e2e testing (any phrasing), first perform the test they asked for. Then ask once whether to enable live local testing so N1 runs it automatically after review.
+- Yes: run \`source ~/.n1/preamble.sh; f=\$(n1_config_file); jq '.localTesting.enabled = true | .localTesting.autoLive = true' \"\$f\" > \"\$f.tmp\" && mv \"\$f.tmp\" \"\$f\"\`
+- No: do not offer again in this conversation.
+- Only if an N1 ticket is active, append an audit row to the Decision Ledger in its overview.md: | local-testing | scope | C | [asked] | Enable live local testing? | <yes/no> | - | user answer to enable offer | --- |
+Never offer when the user did not ask for local/docker/e2e testing."
+    fi
+fi
+
 context="${context}
 
 RESPONSE FORMATTING:

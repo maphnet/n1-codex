@@ -328,4 +328,24 @@ assert_eq "session-start: corrupt events -> no digest, valid JSON" "0" \
     "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep -c 'N1 QUEUE STATUS' || true)"
 rm -rf "$N1_HOME/queue"
 
+# --- session-start: local-testing enable offer (NP-222) ----------------------
+LTP="$T/ltproj"; mkdir -p "$LTP"; touch "$LTP/compose.yaml"
+has_offer() {
+  local ctx
+  ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"$LTP\",\"source\":\"startup\"}" | N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext)
+  case "$ctx" in *"LOCAL TESTING OFFER"*) echo yes;; *) echo no;; esac
+}
+echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
+assert_eq "enable offer injected when live is off and compose exists" "yes" "$(has_offer)"
+echo '{"telemetry":{"enabled":false},"localTesting":{"autoLive":true}}' > "$N1_HOME/config.json"
+assert_eq "no enable offer when live already resolves" "no" "$(has_offer)"
+echo '{"telemetry":{"enabled":false},"localTesting":{"enabled":false,"autoLive":true}}' > "$N1_HOME/config.json"
+assert_eq "enable offer when localTesting disabled" "yes" "$(has_offer)"
+echo '{"telemetry":{"enabled":false},"localTesting":{"mode":"test"}}' > "$N1_HOME/config.json"
+assert_eq "no enable offer when mode explicitly set to test" "no" "$(has_offer)"
+echo '{"telemetry":{"enabled":false},"localTesting":{"enabled":false,"mode":"test"}}' > "$N1_HOME/config.json"
+assert_eq "no enable offer even when disabled, if mode explicitly set (never overwrite a deliberate choice)" "no" "$(has_offer)"
+rm "$LTP/compose.yaml"; echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
+assert_eq "no enable offer without a compose file" "no" "$(has_offer)"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
