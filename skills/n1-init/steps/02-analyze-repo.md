@@ -5,7 +5,7 @@
 Explore the project to detect:
 
 1. **Stack:** Look for `package.json`, `composer.json`, `Cargo.toml`, `go.mod`, `requirements.txt`, `pyproject.toml`, `Gemfile`, `pom.xml`, `build.gradle`, etc.
-2. **Docker:** Check for `Dockerfile`, `docker-compose.yml`, `docker-compose.yaml`
+2. **Docker:** Check for `Dockerfile`, `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml`
 3. **Monorepo:** Check for `lerna.json`, `pnpm-workspace.yaml`, `turbo.json`, or multiple `package.json` files
 4. **Test runner:** Look in config files and scripts for test commands
 5. **Linter/formatter:** Look for `.eslintrc*`, `.prettierrc*`, `phpcs.xml`, `rustfmt.toml`, `.flake8`, etc.
@@ -51,7 +51,7 @@ Check the project root for startup files in priority order (highest priority mat
 
 | Priority | File Pattern | Suggested command |
 |----------|-------------|-------------------|
-| 1 | `docker-compose.yml` / `docker-compose.yaml` / `compose.yml` | `docker compose up -d` |
+| 1 | `docker-compose.yml` / `docker-compose.yaml` / `compose.yml` / `compose.yaml` | `docker compose up -d` |
 | 2 | `Makefile` with targets matching `^(up\|run\|serve\|start\|dev):` | `make <first match>` |
 | 3 | `package.json` with `dev` or `start` in scripts | `npm run dev` |
 | 4 | `manage.py` | `python manage.py runserver` |

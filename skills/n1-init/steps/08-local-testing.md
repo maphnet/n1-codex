@@ -23,6 +23,25 @@ Requires the app to be startable from the command line.
 
 **If 1 (Yes) or default:**
 
+**Auto live (only when the project root has a compose file** — `compose.yaml`, `compose.yml`, `docker-compose.yaml`, or `docker-compose.yml`; reuse step 02's Consolidated Detection when available, else run `n1_compose_file "$(git rev-parse --show-toplevel)"` — `lib/config.sh`, the same helper `n1_resolve_local_testing_mode` and the session-start enable offer use — as a direct root check). If no compose file exists, do not ask and leave `autoLive` absent (defaults to `false`). Otherwise ask the user:
+```
+Run live Docker e2e automatically?
+A compose file was detected. With auto live on, N1 starts the stack and tests live endpoints after review (an explicit mode overrides this).
+1 — Yes
+2 — No (default)
+```
+- **1 (Yes):** write the block below — no `mode` key, since an explicit mode overrides autoLive. Skip the mode selection prompt and continue with **Startup Detection** below.
+  ```json
+  {
+    "localTesting": {
+      "enabled": true,
+      "autoLive": true,
+      "maxFixAttempts": 3
+    }
+  }
+  ```
+- **2 (No) or default:** write `localTesting.autoLive: false` and continue with mode selection.
+
 Select the testing mode:
 ```
 How should N1 test this project locally?
@@ -111,7 +130,8 @@ If `localTesting` already exists in the current config, show current state and o
 ```
 Current local testing configuration:
   Enabled: <true/false>
-  Mode: <current mode or "(not set -- will infer from startCommand)">
+  Mode: <current mode or "(not set -- will infer from autoLive + compose file, then startCommand)">
+  Auto live: <current autoLive or "false">
   Start command: <current value or "(not set)">
   Teardown command: <current value or "(not set)">
   maxFixAttempts: <value>
@@ -123,8 +143,8 @@ Current local testing configuration:
 5 — Reconfigure start/teardown commands
 ```
 - **1** → leave unchanged.
-- **2** → set `enabled: true`, `maxFixAttempts: 3`. If `mode` is absent, run the mode selection prompt from the fresh-setup flow. Then run the Startup Detection flow above.
-- **3** → set `enabled: false`. Remove `maxFixAttempts`, `startCommand`, `teardownCommand`, and `mode` keys.
+- **2** → set `enabled: true`, `maxFixAttempts: 3`. If `mode` is absent and `autoLive` is not `true`, run the Auto live question and then the mode selection prompt from the fresh-setup flow. Then run the Startup Detection flow above.
+- **3** → set `enabled: false`. Remove `maxFixAttempts`, `startCommand`, `teardownCommand`, `mode`, and `autoLive` keys.
 - **4** → run the mode selection prompt from the fresh-setup flow. Update `localTesting.mode`. If switching to/from `"smoke"`, adjust related keys accordingly.
 - **5** → run the Startup Detection flow above (regardless of enabled state).
 
