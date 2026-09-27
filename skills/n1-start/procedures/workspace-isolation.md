@@ -32,9 +32,9 @@ WORKTREE_PATH="$MAIN_CHECKOUT/$WT_ROOT/<ID>"; DEFAULT=<git.defaultBranch>
 git branch <TARGET> $DEFAULT 2>/dev/null || true
 [ -f "$BP_FILE" ] || git rev-parse "$DEFAULT" > "$N1_HOME/memory/<ID>/branch-point"
 CURRENT=$(git branch --show-current); [ "$CURRENT" = "$TARGET" ] && git checkout $DEFAULT
-git worktree add "$WORKTREE_PATH" <TARGET> && echo "copyFiles: $(n1_copy_worktree_files "$MAIN_CHECKOUT" "$WORKTREE_PATH") copied"
+git worktree add "$WORKTREE_PATH" <TARGET> && n1_copy_worktree_files "$MAIN_CHECKOUT" "$WORKTREE_PATH"
 ```
-`git worktree add` fail→recovery. `worktree.copyFiles` (e.g. `[".env"]`) entries are copied from the main checkout only when missing in the new worktree and git-ignored there; a missing source never blocks worktree creation.
+`git worktree add` fail→recovery.
 
 ## Ensure Dependencies (`<ID>`)
 
