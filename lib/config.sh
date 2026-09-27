@@ -578,6 +578,32 @@ n1_review_narrow_threshold_codex() {
     printf '%s' "${v:-100}"
 }
 
+n1_compose_file() {
+    # Usage: n1_compose_file [dir]. Prints the first matching root compose filename and returns 0,
+    # or prints nothing and returns 1. Single source of truth for the compose-name list (NP-222) --
+    # n1_resolve_local_testing_mode, hooks/session-start.sh's enable offer, and n1-init step 08 all
+    # call this instead of each keeping their own copy of the list.
+    local dir="${1:-.}" f
+    for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+        if [ -f "$dir/$f" ]; then printf '%s' "$f"; return 0; fi
+    done
+    return 1
+}
+
+n1_resolve_local_testing_mode() {
+    # Usage: n1_resolve_local_testing_mode [repo_dir]
+    # Prints the local-testing mode. Precedence: explicit localTesting.mode >
+    # localTesting.autoLive=true + root compose file -> live > startCommand set -> live > test.
+    local dir="${1:-.}" mode
+    mode=$(n1_config_val '.localTesting.mode')
+    if [ -n "$mode" ]; then printf '%s' "$mode"; return 0; fi
+    if [ "$(n1_config_val '.localTesting.autoLive')" = "true" ] && n1_compose_file "$dir" >/dev/null; then
+        printf 'live'; return 0
+    fi
+    if [ -n "$(n1_config_val '.localTesting.startCommand')" ]; then printf 'live'; return 0; fi
+    printf 'test'
+}
+
 n1_ci_checks_val() {
     # Usage: n1_ci_checks_val <key>
     # Keys: enabled, maxFixAttempts, confidenceThreshold
