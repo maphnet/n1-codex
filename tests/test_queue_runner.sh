@@ -24,6 +24,7 @@ export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 source "${REPO_ROOT}/lib/config.sh"
 source "${REPO_ROOT}/lib/frontmatter.sh"
 source "${REPO_ROOT}/lib/queue.sh"
+source "${REPO_ROOT}/lib/validation.sh"
 
 # --- n1_story_parse_service (migrated from test_story_lib.sh) ----------------
 test_parse_service() {
@@ -1712,6 +1713,24 @@ EOF
     assert_eq "chain: malformed post hash never recorded" "1" "$(n1_desc_hash_record T-1 "$h0" 'not-a-hash' && echo 0 || echo 1)"
 }
 
+# NP-231: vague-title heuristic behind the queue's "no usable content" exclusion.
+test_title_vague() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    _vague() { printf '%s' "$1" > "$tmp/t"; n1_title_vague "$tmp/t" && echo vague || echo ok; }
+    assert_eq "title-vague: one word" "vague" "$(_vague 'Fix')"
+    assert_eq "title-vague: three words" "vague" "$(_vague 'Fix the thing')"
+    assert_eq "title-vague: four words is usable" "ok" "$(_vague 'Add retry to uploader')"
+    assert_eq "title-vague: normal title" "ok" "$(_vague 'Brief thin queue tickets at plan time')"
+    assert_eq "title-vague: key prefix stripped before counting" "vague" "$(_vague 'NP-231: fix it')"
+    assert_eq "title-vague: key-prefixed normal title" "ok" "$(_vague 'NP-231: brief thin queue tickets at plan time')"
+    assert_eq "title-vague: empty title" "vague" "$(_vague '')"
+    rm -f "$tmp/t"
+    assert_eq "title-vague: missing file fails closed (vague -> excluded)" "vague" "$(n1_title_vague "$tmp/t" && echo vague || echo ok)"
+    printf '$(touch %s/pwned) `touch %s/pwned2`' "$tmp" "$tmp" > "$tmp/t"
+    n1_title_vague "$tmp/t" || true
+    assert_eq "title-vague: title text is never executed (SEC-1)" "no" "$([ -e "$tmp/pwned" ] || [ -e "$tmp/pwned2" ] && echo yes || echo no)"
+}
+
 
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
 test_overlap_order() {
@@ -1774,6 +1793,7 @@ test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
 test_desc_hash_chain
+test_title_vague
 test_overlap_order
 test_release_wiring
 test_already_run
