@@ -231,6 +231,10 @@ The `### Linked Error Tracker Issue` section is tracker ticket mode only; includ
 
 **Idempotency:** If the fetched description already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment — set tier to "Adequate (already enriched)" and proceed.
 
+`*Briefed by N1 (queue plan)*` (n1-queue's plan-time brief) is not an enrichment marker: assess and enrich briefed tickets in full.
+
+**Queue children:** wrap every tracker description update below (Empty/Skeletal step 3, Weak step 2) in `references/desc-hash-chain.md` under the plugin root (`source ~/.n1/preamble.sh` sets `$N1_ROOT`): § Before the write on the description you fetched, § After the write once the update succeeds. The procedure's Gate makes this a no-op outside queue runs.
+
 Run this assessment AFTER the Fetch section has populated context data (step 1) but BEFORE the final distill (step 9). The analysis in steps 7-8 runs on the ORIGINAL description regardless of enrichment outcome — enrichment writes to the tracker, not to the analyst's working copy.
 
 **A. Determine ticket type** from the tracker's type/issue-type field. Map to: `bug`, `feature`, `task`, or `improvement`. If unavailable, infer from the title and description content.

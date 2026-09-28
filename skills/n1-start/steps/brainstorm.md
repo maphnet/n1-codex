@@ -61,4 +61,4 @@ n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,ke
 
 `direct`: specified+independent+no design+no test strategy. `plan`: coordination/open questions/new abstractions/security/API/cross-cutting. Default `plan`.
 
-**Post-Brainstorm Enrichment:** ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent if `*Refined after design review — N1*`). Post design summary. Non-blocking.
+**Post-Brainstorm Enrichment:** ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent if `*Refined after design review — N1*`). Post design summary. Non-blocking. Queue children: wrap the description write in `<N1_ROOT>/references/desc-hash-chain.md` (§ Before the write, § After the write).

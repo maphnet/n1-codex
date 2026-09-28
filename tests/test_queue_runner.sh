@@ -1731,6 +1731,27 @@ test_title_vague() {
     assert_eq "title-vague: title text is never executed (SEC-1)" "no" "$([ -e "$tmp/pwned" ] || [ -e "$tmp/pwned2" ] && echo yes || echo no)"
 }
 
+# NP-231: every N1 description write in a queue child goes through the hash chain.
+test_desc_chain_wiring() {
+    local r="$REPO_ROOT" f d="$REPO_ROOT/references/desc-hash-chain.md" pa="$REPO_ROOT/agents/product-analyst.md"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    for f in agents/product-analyst.md skills/n1-start/steps/brainstorm.md \
+             skills/n1-start/steps/investigation-deliverable.md skills/n1-start/steps/estimation.md; do
+        assert_eq "chain-wiring: $f routes its description write through desc-hash-chain.md" "yes" "$(_hasF 'references/desc-hash-chain.md' "$r/$f")"
+    done
+    assert_eq "chain-wiring: product-analyst wires both write paths (Empty/Skeletal step 3, Weak step 2)" "yes" "$(_hasF 'Empty/Skeletal step 3, Weak step 2' "$pa")"
+    assert_eq "chain-wiring: procedure is gated on N1_QUEUE_RUN_ID" "yes" "$(_hasF '[ -n "${N1_QUEUE_RUN_ID:-}" ]' "$d")"
+    assert_eq "chain-wiring: pre-write text is hashed from files (SEC-1)" "yes" "$(_hasF 'n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt"' "$d")"
+    assert_eq "chain-wiring: post-write text is re-fetched and hashed from files" "yes" "$(_hasF 'n1_queue_content_hash "$M/.desc-post.title" "$M/.desc-post.txt"' "$d")"
+    assert_eq "chain-wiring: records only via the gated helper" "yes" "$(_hasF 'n1_desc_hash_record "<ID>" "$PRE" "$POST"' "$d")"
+    assert_eq "chain-wiring: forbids appending to .desc-hashes any other way" "yes" "$(_hasF 'Never append to `.desc-hashes` any other way' "$d")"
+    assert_eq "chain-wiring: procedure runs no raw append to .desc-hashes" "0" "$(grep -cE '>>[^|]*desc-hashes' "$d" 2>/dev/null || true)"
+    # product-analyst: skip markers unchanged; the queue brief never skips enrichment.
+    assert_eq "chain-wiring: product-analyst skip markers unchanged" "yes" "$(_hasF 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' "$pa")"
+    assert_eq "chain-wiring: Briefed marker never on a skip line" "0" "$(grep -F 'skip enrichment' "$pa" | grep -cF 'Briefed' || true)"
+    assert_eq "chain-wiring: product-analyst enriches briefed tickets in full" "yes" "$(_hasF '`*Briefed by N1 (queue plan)*` (n1-queue'"'"'s plan-time brief) is not an enrichment marker' "$pa")"
+}
+
 
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
 test_overlap_order() {
@@ -1794,6 +1815,7 @@ test_pending_rows
 test_decisions_and_stale
 test_desc_hash_chain
 test_title_vague
+test_desc_chain_wiring
 test_overlap_order
 test_release_wiring
 test_already_run
