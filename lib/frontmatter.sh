@@ -5,8 +5,8 @@ n1_read_frontmatter() {
     local file="$1" key="$2"
     [ -f "$file" ] || return 0
     awk -v key="$key" '
-        NR==1 && /^---$/ { in_fm=1; next }
-        in_fm && /^---$/ { exit }
+        NR==1 && /^---\r?$/ { in_fm=1; next }
+        in_fm && /^---\r?$/ { exit }
         in_fm && $0 ~ "^" key ":" {
             sub("^" key ":[[:space:]]*", "")
             gsub(/\r/, "")

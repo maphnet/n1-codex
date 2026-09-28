@@ -74,4 +74,24 @@ set -e
 assert_eq "cap exhausted exits 0 and prints nothing" "0:" "$RC:$OUT"
 assert_eq "cap exhausted leaves memory untouched" "yes" "$([ -f "$M/CAP-1/ticket.md" ] && echo yes || echo no)"
 
+# 10. Trailing slash on memory_dir arg: dir is stripped so target is "<id>-old", not "<id>/-old"
+mk NP-304 done
+assert_eq "trailing-slash arg archives to sibling -old, not nested" "$M/NP-304-old" \
+    "$(n1_memory_reuse_check "$M/NP-304/" "Compact ticket memory files after the review step")"
+assert_eq "no nested -old dir created under the stripped path" "no" \
+    "$([ -e "$M/NP-304/-old" ] && echo yes || echo no)"
+
+# 11. CRLF overview.md ("step: done\r") still parses as done via n1_read_frontmatter's \r strip
+mkdir -p "$M/NP-305"
+printf -- '---\r\nstep: done\r\n---\r\n\r\n# NP-305 . Export invoices to CSV\r\n' > "$M/NP-305/overview.md"
+assert_eq "CRLF step:done archives on unrelated title" "$M/NP-305-old" \
+    "$(n1_memory_reuse_check "$M/NP-305" "Compact ticket memory files after the review step")"
+
+# 12. Fresh title with quotes/$(...)/backticks is treated as inert data, never executed
+mk NP-306 done
+MARKER="$T/pwned"
+assert_eq "shell-metacharacter title archives (unrelated words) without executing" "$M/NP-306-old" \
+    "$(n1_memory_reuse_check "$M/NP-306" 'archive tickt memory bu $(touch '"$MARKER"') `touch '"$MARKER"'` "quoted"')"
+assert_eq "no side-effect file created" "no" "$([ -e "$MARKER" ] && echo yes || echo no)"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
