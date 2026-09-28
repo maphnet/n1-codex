@@ -31,6 +31,13 @@ printf '#!/usr/bin/env bash\necho MERGED\n' > "$T/ghbin/gh"
 echo '{"session_id":"s-throttle","source":"startup"}' | N1_HOST=claude-code PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 [ "$(grep '^last_checked:' "$MEM2/overview.md")" != "last_checked: 2026-01-01T00:00:00Z" ] && { echo "PASS: last_checked advanced on success"; PASS=$((PASS+1)); } || { echo "FAIL: last_checked advanced on success"; FAIL=$((FAIL+1)); }
 
+# session-start: archived <ID>-old memory is excluded from the pending-merge scan (NP-235)
+MEMOLD="$N1_HOME/memory/T-12-old"; mkdir -p "$MEMOLD"
+printf -- '---\nstep: pr\nawaiting: merge\npr: 43\ncreated: 2099-01-01T00:00:00Z\nlast_checked: 2026-01-01T00:00:00Z\n---\n' > "$MEMOLD/overview.md"
+echo '{"session_id":"s-archived","source":"startup"}' | N1_HOST=claude-code PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "archived -old memory skipped by pending-merge scan" "last_checked: 2026-01-01T00:00:00Z" "$(grep '^last_checked:' "$MEMOLD/overview.md")"
+rm -rf "$MEMOLD"
+
 # session-start: awaiting-merge overview with missing created/pr/last_checked fields must not crash the hook (NP-232)
 MEM3="$N1_HOME/memory/T-11"; mkdir -p "$MEM3"
 printf -- '---\nstep: pr\nawaiting: merge\n---\n' > "$MEM3/overview.md"

@@ -359,10 +359,12 @@ if [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2
     checked=0
     for ov in "${n1_root}"/memory/*/overview.md; do
         [ -f "$ov" ] || continue
+        tid=$(basename "$(dirname "$ov")")
+        # archived by n1_memory_reuse_check (NP-235) — never a live ticket
+        [[ "$tid" =~ ^[A-Z][A-Z0-9_]*-[0-9]+-old(-[0-9]+)?$ ]] && continue
         grep -q '^awaiting: merge$' "$ov" 2>/dev/null || continue
         [ "$checked" -ge 5 ] && { pending_context="${pending_context}
 - (more pending tickets exist — scan capped at 5)"; break; }
-        tid=$(basename "$(dirname "$ov")")
         pr_num=$(grep -m1 '^pr: ' "$ov" | sed 's/^pr: //' | tr -d '[:space:]') || true
         created=$(grep -m1 '^created: ' "$ov" | sed 's/^created: //' | tr -d '[:space:]') || true
         last=$(grep -m1 '^last_checked: ' "$ov" | sed 's/^last_checked: //' | tr -d '[:space:]') || true
