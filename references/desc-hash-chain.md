@@ -19,7 +19,7 @@ Take the ticket's title and description exactly as fetched from the tracker for 
 
 ## After the write
 
-Run this step only when the tracker description write succeeded. Re-fetch the ticket with the tracker read operation as the very next tracker call after the write. The tracker may normalize markup, so never hash the text you sent. Write the fetched title and description to `$N1_HOME/memory/<ID>/.desc-post.title` and `$N1_HOME/memory/<ID>/.desc-post.txt` the same way. Then:
+Run this step only when the tracker description write succeeded. Re-fetch the ticket with the tracker read operation as the very next tracker call after the write. The tracker may normalize markup, so never hash the text you sent. Write the fetched title and description to `$N1_HOME/memory/<ID>/.desc-post.title` and `$N1_HOME/memory/<ID>/.desc-post.txt` the same way. N1 never writes the title, so any difference between the pre-write and post-write title is a human edit made in the window and must not be recorded. Then:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -27,6 +27,7 @@ source "$N1_ROOT/lib/queue.sh"
 M="$N1_HOME/memory/<ID>"
 PRE=$(n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt")
 POST=$(n1_queue_content_hash "$M/.desc-post.title" "$M/.desc-post.txt")
+cmp -s "$M/.desc-pre.title" "$M/.desc-post.title" || POST=""
 n1_desc_hash_record "<ID>" "$PRE" "$POST" && echo RECORDED || echo NOT-RECORDED
 rm -f "$M"/.desc-pre.* "$M"/.desc-post.*
 ```

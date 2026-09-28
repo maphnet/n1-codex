@@ -1728,6 +1728,23 @@ EOF
     rc=0; n1_desc_hash_record T-1 "$PRE" "$h1" || rc=$?
     assert_eq "TQ-2: empty PRE -> record fails closed" "1" "$rc"
     assert_eq "TQ-2: .desc-hashes untouched by the failed record" "$lines_before" "$(wc -l < "$f" | tr -d ' ')"
+
+    # TQ-3 (NP-231 cycle 2, SEC-1/SEC-5): a human title edit between the pre-write and
+    # post-write fetch must never be laundered as an N1 write, even when the description
+    # hash chain is otherwise trusted. Exercises the documented After snippet verbatim.
+    printf 'Add retry' > "$M/.desc-pre.title"
+    printf 'v0 + N1 enrichment' > "$M/.desc-pre.txt"
+    printf 'Human retitled this' > "$M/.desc-post.title"
+    printf 'v0 + N1 enrichment' > "$M/.desc-post.txt"
+    local PRE POST
+    PRE=$(n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt")
+    POST=$(n1_queue_content_hash "$M/.desc-post.title" "$M/.desc-post.txt")
+    cmp -s "$M/.desc-pre.title" "$M/.desc-post.title" || POST=""
+    assert_eq "TQ-3: title change clears POST before record" "" "$POST"
+    lines_before=$(wc -l < "$f" | tr -d ' ')
+    rc=0; n1_desc_hash_record T-1 "$PRE" "$POST" || rc=$?
+    assert_eq "TQ-3: title-changed record fails closed" "1" "$rc"
+    assert_eq "TQ-3: .desc-hashes untouched when the title changed" "$lines_before" "$(wc -l < "$f" | tr -d ' ')"
 }
 
 # NP-231: vague-title heuristic behind the queue's "no usable content" exclusion.
@@ -1761,6 +1778,7 @@ test_desc_chain_wiring() {
     assert_eq "chain-wiring: pre-write text is hashed from files (SEC-1)" "yes" "$(_hasF 'n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt"' "$d")"
     assert_eq "chain-wiring: post-write text is re-fetched and hashed from files" "yes" "$(_hasF 'n1_queue_content_hash "$M/.desc-post.title" "$M/.desc-post.txt"' "$d")"
     assert_eq "chain-wiring: records only via the gated helper" "yes" "$(_hasF 'n1_desc_hash_record "<ID>" "$PRE" "$POST"' "$d")"
+    assert_eq "chain-wiring: a title change clears POST before the record (SEC-1/SEC-5)" "yes" "$(_hasF 'cmp -s "$M/.desc-pre.title" "$M/.desc-post.title" || POST=""' "$d")"
     assert_eq "chain-wiring: forbids appending to .desc-hashes any other way" "yes" "$(_hasF 'Never append to `.desc-hashes` any other way' "$d")"
     assert_eq "chain-wiring: procedure runs no raw append to .desc-hashes" "0" "$(grep -cE '>>[^|]*desc-hashes' "$d" 2>/dev/null || true)"
     assert_eq "chain-wiring: Gate clears stale pre/post scratch files (CR-1/SEC-1)" "2" "$(grep -cF 'rm -f "$M"/.desc-pre.* "$M"/.desc-post.*' "$d" 2>/dev/null || true)"
