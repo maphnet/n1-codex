@@ -186,6 +186,11 @@ test_child_status() {
     assert_eq "qstatus: missing file exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/none.md" 1)"
     assert_eq "qstatus: missing file exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/none.md" 0)"
     assert_eq "qstatus: ask-mode answered then done -> pr, not escalated" "pr" "$(n1_queue_child_status "$tmp/asked-done.md" 0)"
+
+    # NP-216 CR-1: strict mode (live-poll callers) ignores a stale/append-only
+    # ## Escalations entry unless step is explicitly "escalated".
+    assert_eq "qstatus strict: step escalated" "escalated" "$(n1_queue_child_status "$tmp/esc.md" 0 1)"
+    assert_eq "qstatus strict: escalations section but not step -> running" "running" "$(n1_queue_child_status "$tmp/esc2.md" 0 1)"
 }
 
 # --- n1_queue_row_status -----------------------------------------------------
@@ -892,7 +897,11 @@ case "$1" in
                     [ -f "$D/cleared.$t" ] && dp=$'deploy_pending: false\n'
                     touch "$D/cleared.$t"
                 fi
-                printf -- '---\nstep: pr\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$dp" > "$FAKE_N1H/memory/$t/overview.md"
+                # finish-step.<ticket>: overrides the terminal step (default pr) so a test
+                # can simulate a bg session reporting done while overview never reached a
+                # terminal step (NP-216).
+                step="pr"; [ -f "$D/finish-step.$t" ] && step=$(cat "$D/finish-step.$t")
+                printf -- '---\nstep: %s\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" "$dp" > "$FAKE_N1H/memory/$t/overview.md"
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
             out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
@@ -1037,6 +1046,121 @@ EOF
     assert_eq "bg-miss: row 1 reason" "bg-session-not-listed" "$(plan_cell "$tmp/queue.md" 1 9)"
     assert_eq "bg-miss: row 2 pr (retry succeeds)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
     rm -rf "$tmp"
+}
+
+# --- NP-216: overview.md reconciliation, non-empty reasons, notify check -----
+
+test_bg_reconcile_working() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working working"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":0,"notify":"none"}}' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "bg-recw: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-recw: row 1 pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-recw: PR url recorded" "https://x/pr/9" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
+    assert_eq "bg-recw: no deferred-retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-recw: session never stopped" "" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
+    rm -rf "$tmp"
+}
+
+test_bg_reconcile_missing() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:missing missing missing"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":0,"notify":"none"}}' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "bg-recm: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-recm: row 1 pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-recm: no deferred-retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+}
+
+test_bg_reconcile_working_stale_escalation() {
+    # CR-1 regression: a still-working child with a non-terminal step and a stale
+    # (append-only, ask-mode) ## Escalations entry must not be finalized as
+    # "escalated" mid-run — it should be reconciled as "pr" once it truly finishes.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working done"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n' > "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "bg-recw-stale: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-recw-stale: row 1 pr (not escalated)" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+test_bg_blocked_first_tick_parks() {
+    # CR-2 second variant: bg state blocked on the first tick, before the child has
+    # written any ## Escalations entry, still parks as awaiting-human (unaffected).
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: implementation\n---\n# T\n' > "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "bg-blocked-first: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-blocked-first: parked message" "1" "$(grep -c 'T-A -> awaiting-human' "$tmp/output.txt" || true)"
+    assert_eq "bg-blocked-first: row 1 pr after answer" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+test_bg_reason_child_exited_incomplete() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    echo "developer" > "$tmp/fake/finish-step.T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "bg-reason-exited: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-reason-exited: row 1 reason" "child-exited-incomplete" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+test_bg_reason_bg_state_catchall() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:zzz"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "bg-reason-catchall: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-reason-catchall: row 1 reason" "bg-state:failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+test_run_sync_reason_default() {
+    local tmp; tmp=$(mktemp -d)
+    mkdir -p "$tmp/n1home/memory/T-X"
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: syncq
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-X | Fix X | $tmp | $tmp/n1home | sonnet | pending | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    local stub; stub=$(mktemp)
+    printf '#!/bin/sh\nexit 1\n' > "$stub"; chmod +x "$stub"
+    env N1_QUEUE_CHILD_STUB="$stub" N1_HOME="$tmp/n1home" \
+        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" >/dev/null 2>&1 || true
+    assert_eq "sync-reason: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "sync-reason: row 1 reason" "child-exit-1" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp" "$stub"
+}
+
+test_notify_check() {
+    assert_eq "notify-check: none is silent" "" \
+        "$(N1_HOME="$(mktemp -d)" bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo none; }; n1_queue_notify_check")"
+    assert_eq "notify-check: command without notifyCommand warns" "yes" \
+        "$(out=$(bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo command; }; n1_queue_notify_check"); [ -n "$out" ] && echo yes || echo no)"
+    assert_eq "notify-check: ntfy without ntfyTopic warns" "yes" \
+        "$(out=$(bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo ntfy; }; n1_queue_notify_check"); [ -n "$out" ] && echo yes || echo no)"
+    local bash_bin; bash_bin=$(command -v bash)
+    assert_eq "notify-check: desktop with no notifier warns" "yes" \
+        "$(out=$(PATH=/nonexistent "$bash_bin" -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo desktop; }; n1_queue_notify_check"); [ -n "$out" ] && echo yes || echo no)"
 }
 
 test_bg_disclaimer() {
@@ -1583,6 +1707,14 @@ test_bg_deploy_pending
 test_bg_deploy_flag_cleared_mid_run
 test_bg_working_timeout
 test_bg_missing_grace
+test_bg_reconcile_working
+test_bg_reconcile_missing
+test_bg_reconcile_working_stale_escalation
+test_bg_blocked_first_tick_parks
+test_bg_reason_child_exited_incomplete
+test_bg_reason_bg_state_catchall
+test_run_sync_reason_default
+test_notify_check
 test_bg_disclaimer
 test_busy_guard
 

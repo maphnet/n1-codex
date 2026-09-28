@@ -128,9 +128,16 @@ _n1_word_overlap() {
 }
 
 n1_queue_child_status() {
-    # Usage: n1_queue_child_status <overview.md> <exit-code>
+    # Usage: n1_queue_child_status <overview.md> <exit-code> [strict]
     # Prints: pr | escalated | failed | running | awaiting-deploy (NP-219)
-    local overview="$1" exit_code="${2:-0}"
+    # strict=1 (NP-216 live-poll callers): only step:escalated counts as escalated.
+    # ## Escalations is an append-only log (lib/memory.sh) that also gets an entry
+    # in ask-mode while the child continues past the question — its mere presence
+    # is not proof of a terminal escalation for a still-running child. Post-exit
+    # callers (run_sync) keep the broader OR-check: a synchronous child that just
+    # escalated-and-exited sets step:escalated before exiting anyway, but the text
+    # check is kept there as a belt-and-suspenders fallback.
+    local overview="$1" exit_code="${2:-0}" strict="${3:-}"
     if [ ! -f "$overview" ]; then
         [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
         return
@@ -140,7 +147,7 @@ n1_queue_child_status() {
     if [ "$(n1_read_frontmatter "$overview" deploy_pending)" = "true" ]; then printf 'awaiting-deploy'; return; fi
     # pr/ci/done all mean stop-at-CI success
     case "$step" in pr|ci|done) printf 'pr'; return ;; esac
-    if [ "$step" = "escalated" ] || [ -n "$(n1_queue_escalation_text "$overview")" ]; then
+    if [ "$step" = "escalated" ] || { [ "$strict" != "1" ] && [ -n "$(n1_queue_escalation_text "$overview")" ]; }; then
         printf 'escalated'; return
     fi
     [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
@@ -761,6 +768,29 @@ n1_queue_session_started() {
             if (t == tk) { s = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); ts = s }
         }
         END { print ts }' "$1"
+}
+
+n1_queue_notify_check() {
+    # Usage: n1_queue_notify_check — prints a warning line when the configured
+    # queue.notify backend cannot deliver (NP-216: silent notification gaps).
+    # Prints nothing when the backend is usable. Mirrors n1_notify's backend logic.
+    local backend val
+    backend=$(n1_queue_val notify)
+    case "${backend:-desktop}" in
+        none) ;;
+        command)
+            val=$(n1_queue_val notifyCommand)
+            [ -n "$val" ] || echo "Warning: queue.notify=command but queue.notifyCommand is not set; notifications will be skipped." ;;
+        ntfy)
+            val=$(n1_queue_val ntfyTopic)
+            [ -n "$val" ] || echo "Warning: queue.notify=ntfy but queue.ntfyTopic is not set; notifications will be skipped." ;;
+        *)
+            if ! command -v notify-send >/dev/null 2>&1 && ! command -v osascript >/dev/null 2>&1 && ! command -v powershell.exe >/dev/null 2>&1; then
+                echo "Warning: queue.notify=desktop but no desktop notifier (notify-send/osascript/powershell.exe) is on PATH; notifications will be skipped."
+            fi
+            ;;
+    esac
+    return 0
 }
 
 n1_notify() {
