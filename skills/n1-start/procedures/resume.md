@@ -23,6 +23,17 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists.
 source ~/.n1/preamble.sh
 TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
 ```
+**ID reuse check** — if `<input>` is a tracker ID, `step` is `done`, and `readTicket` is configured: fetch the ticket (error → skip) and write its title to `$N1_HOME/memory/.fresh-title-$ID.txt` (a sibling of `$N1_HOME/memory/$ID/`, so an archive can't sweep it in) via the file-write mechanism, never a shell string (untrusted text, NP-203 SEC-1).
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/memory.sh"
+ARCHIVED=$(n1_memory_reuse_check "$N1_HOME/memory/$ID" "$(cat "$N1_HOME/memory/.fresh-title-$ID.txt")")
+rm -f "$N1_HOME/memory/.fresh-title-$ID.txt"
+[ -n "$ARCHIVED" ] && n1_archive_stale_branch "<TARGET>" "${ARCHIVED##*/$ID}"
+echo "ARCHIVED=$ARCHIVED"
+```
+`<TARGET>` is the working branch for `<ID>` (as in `workspace-isolation.md`); renaming it keeps the new ticket off the old commits. Non-empty `ARCHIVED`: tell the user old memory moved there, continue as **Not exists**. Empty `ARCHIVED` (including a failed archive move): resume as today.
+
 Step `escalated` + non-headless: print `## Escalations`, move to `inProgress` (if `tracker.statuses.blocked` set), reset step per `procedures/autonomy-headless.md`.
 
 ```bash
