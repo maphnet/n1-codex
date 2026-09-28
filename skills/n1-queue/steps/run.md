@@ -28,7 +28,12 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 `STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending`:
 1. Call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket.
 2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary.
-3. Otherwise write the fresh title and description to `<QUEUE_DIR>/desc/<KEY>.title` and `<QUEUE_DIR>/desc/<KEY>.txt` (file-write, as in preview.md § Plan-Resolve 1 — never through a shell string, NP-203 SEC-1) and compare its hash with the saved one:
+3. Otherwise clear the row's scratch files first, so a failed write below never leaves the stale plan snapshot to hash as `SAME`:
+   ```bash
+   source ~/.n1/preamble.sh
+   rm -f "<QUEUE_DIR>/desc/<KEY>.title" "<QUEUE_DIR>/desc/<KEY>.txt"
+   ```
+   Then write the fresh title and description to those same paths (file-write, as in preview.md § Plan-Resolve 1 — never through a shell string, NP-203 SEC-1) and compare its hash with the saved one:
    ```bash
    source ~/.n1/preamble.sh
    source "$N1_ROOT/lib/queue.sh"
