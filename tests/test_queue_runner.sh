@@ -1909,7 +1909,7 @@ test_headless_plan_wiring() {
     assert_eq "headless-plan: falls through to escalation on hash mismatch (SEC-1)" "yes" \
         "$(grep -qF 'MISMATCH' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: title and desc are written to files, never a bare shell string (SEC-1)" "yes" \
-        "$(grep -q 'n1_queue_content_hash "<current-title-file>" "<current-desc-file>"' "$h" && echo yes || echo no)"
+        "$(grep -q 'n1_queue_content_hash "\$M/.guard-live.title" "\$M/.guard-live.txt"' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: MATCH needs a non-empty live hash in the trusted set (SEC-5, NP-231)" "yes" \
         "$(grep -qF 'if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "$ID" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: trusted set names N1's recorded writes (.desc-hashes)" "yes" \
