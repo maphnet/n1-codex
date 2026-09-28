@@ -231,7 +231,7 @@ The `### Linked Error Tracker Issue` section is tracker ticket mode only; includ
 
 **Idempotency:** If the fetched description already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment — set tier to "Adequate (already enriched)" and proceed.
 
-`*Briefed by N1 (queue plan)*` (n1-queue's plan-time brief) is not an enrichment marker: assess and enrich briefed tickets in full.
+`*Briefed by N1 (queue plan)*` (n1-queue's plan-time brief) is not an idempotency marker; grade briefed tickets normally.
 
 **Queue children:** wrap every tracker description update below (Empty/Skeletal step 3, Weak step 2) in `references/desc-hash-chain.md` under the plugin root (`source ~/.n1/preamble.sh` sets `$N1_ROOT`): § Before the write on the description you fetched, § After the write once the update succeeds. The procedure's Gate makes this a no-op outside queue runs.
 
