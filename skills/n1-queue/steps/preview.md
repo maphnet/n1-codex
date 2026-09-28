@@ -35,14 +35,16 @@ Runs for every candidate before the prompt below (and, from run.md § Saved plan
 
 ### 1. Brief and description snapshot
 
-**Brief (Empty/Skeletal only).** Resolve the write operation once:
+**Brief (Empty/Skeletal only).** Resolve the write operation per distinct N1 Home (a candidate's own home, per intake's `N1 Home` column):
 
 ```bash
 source ~/.n1/preamble.sh
-printf 'EDIT_OP=%s\nENRICH=%s\n' "$(n1_config_val '.tracker.operations.editTicket')" "$(n1_config_val '.ticketEnrichment.enabled')"
+for h in <distinct N1 Home paths>; do
+    printf '%s EDIT_OP=%s ENRICH=%s\n' "$h" "$(N1_HOME="$h" n1_config_val '.tracker.operations.editTicket')" "$(N1_HOME="$h" n1_config_val '.ticketEnrichment.enabled')"
+done
 ```
 
-For each candidate that intake graded Empty or Skeletal, when `EDIT_OP` is non-empty and `ENRICH` is not `false`, construct a short brief from its title, description and comments. The brief only needs to be enough for the planner. The child's product-analyst still runs full enrichment. Use plain bullets for Jira (`CLOUD_ID` set) and checkboxes for YouTrack:
+For each candidate that intake graded Empty or Skeletal, when its own home's `EDIT_OP` is non-empty and `ENRICH` is not `false`, construct a short brief from its title, description and comments. The brief only needs to be enough for the planner. The child's product-analyst still runs full enrichment. Use plain bullets for Jira (`CLOUD_ID` set) and checkboxes for YouTrack:
 
 ```
 ---
