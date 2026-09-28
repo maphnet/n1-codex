@@ -1752,6 +1752,24 @@ test_desc_chain_wiring() {
     assert_eq "chain-wiring: product-analyst enriches briefed tickets in full" "yes" "$(_hasF '`*Briefed by N1 (queue plan)*` (n1-queue'"'"'s plan-time brief) is not an enrichment marker' "$pa")"
 }
 
+# NP-231: thin tickets get a plan-time brief instead of a word-count exclusion.
+test_brief_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue" b c
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "brief: intake no longer excludes on word count" "no" "$(grep -qE '30 words|description too thin' "$s/steps/intake.md" && echo yes || echo no)"
+    assert_eq "brief: intake's only content exclusion reason" "yes" "$(_hasF 'no usable content: empty description, vague title' "$s/steps/intake.md")"
+    assert_eq "brief: intake checks the title from a file (SEC-1)" "yes" "$(_hasF 'n1_title_vague "<QUEUE_DIR>/desc/<KEY>.title"' "$s/steps/intake.md")"
+    assert_eq "brief: intake reuses product-analyst tiers" "yes" "$(_hasF 'agents/product-analyst.md' "$s/steps/intake.md")"
+    assert_eq "brief: intake never re-briefs a briefed ticket" "yes" "$(_hasF '*Briefed by N1 (queue plan)*' "$s/steps/intake.md")"
+    assert_eq "brief: preview writes the marked brief" "yes" "$(_hasF '*Briefed by N1 (queue plan)*' "$s/steps/preview.md")"
+    assert_eq "brief: preview re-fetches briefed tickets before the snapshot" "yes" "$(_hasF 'Re-fetch each briefed candidate' "$s/steps/preview.md")"
+    b=$(grep -nF '*Briefed by N1 (queue plan)*' "$s/steps/preview.md" | head -1 | cut -d: -f1)
+    c=$(grep -nF 'n1_queue_content_hash' "$s/steps/preview.md" | head -1 | cut -d: -f1)
+    assert_eq "brief: Desc Checksum is taken after the brief" "yes" "$([ -n "$b" ] && [ -n "$c" ] && [ "$b" -lt "$c" ] && echo yes || echo no)"
+    assert_eq "brief: preview shows briefs before Start" "yes" "$(_hasF 'Brief <KEY>:' "$s/steps/preview.md")"
+    assert_eq "brief: --run re-plan re-runs Plan-Resolve 1 so the checksum stays post-brief" "yes" "$(_hasF 'preview.md § Plan-Resolve 1' "$s/steps/run.md")"
+}
+
 
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
 test_overlap_order() {
@@ -1816,6 +1834,7 @@ test_decisions_and_stale
 test_desc_hash_chain
 test_title_vague
 test_desc_chain_wiring
+test_brief_wiring
 test_overlap_order
 test_release_wiring
 test_already_run

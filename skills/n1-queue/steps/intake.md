@@ -63,7 +63,16 @@ Excluded tickets are left for a later run (no toposort).
 
 ## Description quality
 
-For each remaining candidate, assess the description: if the description is empty or has fewer than 30 words (whitespace-split), exclude with reason `description too thin`.
+For each remaining candidate, grade the description with the product-analyst tiers (`<N1_ROOT>/agents/product-analyst.md` § Description Quality Assessment, table C): Empty, Skeletal, Weak, Adequate. A description that already carries `*Briefed by N1 (queue plan)*`, `*Structured by N1*` or `*Restructured by N1*` counts as Adequate here, so it is never briefed twice. Keep the tier with the candidate for preview.md § Plan-Resolve 1. Length alone never excludes.
+
+Exclude only a candidate with nothing to work from: an Empty description and a vague title. For each Empty candidate, write its title to `<QUEUE_DIR>/desc/<KEY>.title` with the file-write mechanism (never through a shell string, NP-203 SEC-1), then:
+
+```bash
+source ~/.n1/preamble.sh
+n1_title_vague "<QUEUE_DIR>/desc/<KEY>.title" && echo VAGUE || echo OK
+```
+
+`VAGUE`: exclude with reason `no usable content: empty description, vague title`. `OK`: keep; preview briefs it.
 
 ## Duplicate check
 
@@ -83,6 +92,6 @@ If no size field, default to `sonnet`.
 
 Build two lists:
 - **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration)
-- **Excluded**: `Ticket`, `Reason` (already run, blocked, story, description too thin, skip, done-before-run)
+- **Excluded**: `Ticket`, `Reason` (already run, blocked, story, no usable content, skip, done-before-run)
 
 If no candidates: "No actionable tickets found." **STOP.**
