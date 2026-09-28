@@ -188,7 +188,7 @@ echo "ENRICHMENT_ENABLED=$ENRICHMENT_ENABLED HAS_EDIT=$HAS_EDIT HAS_COMMENT=$HAS
    ## Summary / ## Key Findings / ## Acceptance Criteria / ## Scope / ## Architectural Constraints / ## Metrics / ## Recommendations / ## Full Report (only when KB_ARTICLE_LINK non-empty)
    ```
    Derivation: AC = one verifiable criterion per recommendation. Scope-in = components from Findings. Scope-out = investigation boundaries. Constraints = invariants/dependencies from Findings. Full Report = KB_ARTICLE_LINK only.
-5. Queue children: via `<N1_ROOT>/references/desc-hash-chain.md`. On failure: log warning, non-blocking.
+5. Call editTicket via tracker MCP (queue: `<N1_ROOT>/references/desc-hash-chain.md`). On failure: log warning, non-blocking.
 
 **3-iii. Comment** (when `HAS_COMMENT` non-empty):
 
