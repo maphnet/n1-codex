@@ -39,7 +39,7 @@ n1_record_decision estimation-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && 
    ```
    Full names: XS=Extra Small, S=Small, M=Medium, L=Large, XL=Extra Large.
 
-7. **Write to tracker description** (ALL required: ticket ID exists + `tracker.mcp` + `editTicket` + `estimation.writeToTracker !== false`): fetch current description; check for `*Estimated by N1*` (skip if present); append block with `---\n*Estimated by N1*\n**Complexity:**...\n**Estimated delivery:**...\n**Basis:**...`; call `editTicket` (queue children: references/desc-hash-chain.md). Non-blocking on failure.
+7. **Write to tracker description** (ALL required: ticket ID exists + `tracker.mcp` + `editTicket` + `estimation.writeToTracker !== false`): fetch current description; check for `*Estimated by N1*` (skip if present); append block with `---\n*Estimated by N1*\n**Complexity:**...\n**Estimated delivery:**...\n**Basis:**...`; call `editTicket` (queue: <N1_ROOT>/references/desc-hash-chain.md). Non-blocking.
 
 8. **Write to tracker time field** (same gating): call `editTicket` with `timetracking.originalEstimate` (Jira) or `Estimation` field (YouTrack). Non-blocking.
 
