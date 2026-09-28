@@ -37,6 +37,9 @@ assert_contains "local-testing: orchestrator prohibition" \
 assert_contains "local-testing: developer env step 0" \
     "skills/n1-start/steps/local-testing.md" \
     "0. Environment check: before anything else"
+assert_contains "local-testing: QA dedup gate requires test mode" \
+    "skills/n1-start/steps/local-testing.md" \
+    'if [ -z "$NON_PYTEST" ] && [ "$LOCAL_TESTING_MODE" = "test" ]; then'
 assert_contains "qa: no inline test runs" \
     "skills/n1-start/steps/qa.md" \
     "ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint commands in this step"

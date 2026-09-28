@@ -7,15 +7,14 @@ Run `n1_config_val '.localTesting.enabled'` (default: `true`).
 source ~/.n1/preamble.sh
 GATE_ENABLED=$(n1_config_val '.localTesting.enabled' 2>/dev/null || echo 'true')
 n1_record_decision local-testing-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"localTesting.enabled"}' "enabled=${GATE_ENABLED:-true}"
+echo "LOCAL_TESTING_MODE=$(n1_resolve_local_testing_mode "$(git rev-parse --show-toplevel)")"
 ```
 
 > The gate key (`localTesting.enabled`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
 
 **If `localTesting.enabled` is `false`:** Skip to Step 10 (PR CREATION).
 
-**Mode resolution:** Read `n1_config_val '.localTesting.mode'` (default: empty). If empty or absent, infer:
-- If `n1_config_val '.localTesting.startCommand'` returns a non-empty value -> mode is `"live"`
-- Otherwise -> mode is `"test"`
+**Mode resolution:** `LOCAL_TESTING_MODE` was resolved above via `n1_resolve_local_testing_mode`. Precedence (in `lib/config.sh`): explicit `localTesting.mode` > `localTesting.autoLive: true` plus a root compose file (`compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`) -> `"live"` > non-empty `localTesting.startCommand` -> `"live"` > `"test"`.
 
 Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
 
@@ -33,14 +32,16 @@ Skip to Step 10 (PR CREATION).
 - If `implementation.md` indicates no runtime-affecting code was modified → skip.
 - Log skip reason in overview under `## Key Decisions`.
 
-**QA dedup gate (even when enabled):** Run via Bash:
+**QA dedup gate (`test` mode only):** In `live` mode pytest-only QA does not cover infrastructure or live endpoints, so the gate never skips there; it still captures `QA_RUNNER_CMDS` for the planner. Run via Bash, substituting the resolved mode:
 ```bash
+source ~/.n1/preamble.sh
+LOCAL_TESTING_MODE="<resolved LOCAL_TESTING_MODE>"
 QA_MD="$N1_HOME/memory/$ID/qa.md"
 if [ -f "$QA_MD" ]; then
   RUNNER_CMDS=$(grep 'Runner command:' "$QA_MD" | sed 's/.*Runner command: *//')
   if [ -n "$RUNNER_CMDS" ]; then
     NON_PYTEST=$(echo "$RUNNER_CMDS" | grep -v '^pytest\b' | grep -v '^python -m pytest\b' || true)
-    if [ -z "$NON_PYTEST" ]; then
+    if [ -z "$NON_PYTEST" ] && [ "$LOCAL_TESTING_MODE" = "test" ]; then
       echo "QA_DEDUP_SKIP=true"
     else
       echo "QA_DEDUP_SKIP=false"
@@ -51,15 +52,15 @@ if [ -f "$QA_MD" ]; then
   fi
 fi
 ```
-- If `QA_DEDUP_SKIP=true`: all Runner commands in qa.md are pytest — QA already covers the test surface.
-  - Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — QA dedup (all Runner commands are pytest)".
+- If `QA_DEDUP_SKIP=true`: mode is `test` and all Runner commands in qa.md are pytest — QA already covers the test surface.
+  - Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — QA dedup (test mode, all Runner commands are pytest)".
   - Emit telemetry:
     ```bash
     source ~/.n1/preamble.sh
     n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 9 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"skipped","skip_reason":"qa_dedup"}'
     ```
   - Skip to Step 10 (PR CREATION).
-- If `QA_DEDUP_SKIP=false`: at least one non-pytest Runner command exists — proceed to 9a. Capture the `QA_RUNNER_CMDS` value for injection into the planner prompt in 9a.
+- If `QA_DEDUP_SKIP=false`: mode is `live`, or at least one non-pytest Runner command exists — proceed to 9a. Capture the `QA_RUNNER_CMDS` value for injection into the planner prompt in 9a.
 
 **Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
 procedure before infrastructure/app startup. Marker-guarded no-op if already installed.
@@ -124,14 +125,15 @@ Resolve model for `developer`.
 Spawn the developer agent with:
 - The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/local-test-plan.md` (the test plan to execute) and `$N1_HOME/memory/<ID>/implementation.md` (context for debugging)."
 - The value of `n1_config_val '.worktree.setup'` as `<SETUP>` (may be empty).
+- The value of `n1_config_val '.localTesting.teardownCommand'` as `<TEARDOWN>` (may be empty).
 - Directive: "Execute the local test plan. Follow this sequence strictly:"
   - "0. Environment check: before anything else, verify the interpreter and test runner work in the worktree (e.g. `python -m pytest --version`, `npm test -- --help`, or the project's equivalent). If dependencies are missing and the project defines a setup command (`worktree.setup` in `$N1_HOME/config.json`, passed to you as `<SETUP>`), run it ONCE. If the environment still does not work, write a report with `Result: ENV_FAILURE` and the exact stderr, run cleanup, and STOP — do not attempt scenarios and do not try to repair the environment further."
-  - "1. Infrastructure setup: run the start command from the plan. Poll readiness check with a 60s timeout. If infrastructure fails to start, report immediately with the error output and STOP — do not attempt scenarios."
+  - "1. Infrastructure setup: run the start command from the plan. Poll readiness check with a 60s timeout. If infrastructure fails to start, report immediately with the error output, run cleanup (step 6), and STOP — do not attempt scenarios."
   - "2. App startup: start the app in background. Poll the readiness signal with a 30s timeout. If app fails to start, capture stderr/stdout, report FAIL, run cleanup, and STOP."
   - "3. Existing e2e tests: if the plan has an 'Existing E2E Tests' section with a run command (not 'N/A' or 'None'), run that command. Record the full output. If no existing e2e suite, skip this step."
   - "4. Ad-hoc scenario execution: execute each scenario from 'Automated Test Scenarios' SEQUENTIALLY (not parallel — some may depend on prior state). Record PASS/FAIL per scenario with actual output. Continue through ALL scenarios even if some fail. If the plan says 'no ad-hoc scenarios needed', skip this step."
   - "5. Evidence capture: for each test/scenario, record HTTP response bodies and status codes, command stdout/stderr, relevant app log output, full error context for failures."
-  - "6. Cleanup: ALWAYS runs, even on failure. Kill app process, tear down infrastructure, verify no orphan containers/processes."
+  - "6. Cleanup: ALWAYS runs, on every attempt, even on failure (ENV_FAILURE, infrastructure or app startup failure, failing scenarios). Kill app process, tear down infrastructure, verify no orphan containers/processes. If `<TEARDOWN>` is non-empty, run it from the worktree root as part of cleanup; a failing teardown is recorded in the report's cleanup status, not treated as a test failure."
 - Directive: "CONSTRAINTS — you MUST follow these:"
   - "Do NOT modify production code — only execute and observe"
   - "Do NOT write or modify tests"
@@ -308,4 +310,4 @@ Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core
   - "3 — Provide guidance for another fix attempt"
 - If 3: reset the counter ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci) and continue with user's guidance.
 
-**Cleanup guarantee:** cleanup runs after EVERY execution attempt, including failed ones. No orphan containers or processes between fix cycles.
+**Cleanup guarantee:** cleanup runs after EVERY execution attempt, including failed ones, and includes `localTesting.teardownCommand` when set. No orphan containers or processes between fix cycles.

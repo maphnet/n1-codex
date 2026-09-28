@@ -578,6 +578,61 @@ n1_review_narrow_threshold_codex() {
     printf '%s' "${v:-100}"
 }
 
+n1_compose_file() {
+    # Usage: n1_compose_file [dir]. Prints the first matching root compose filename and returns 0,
+    # or prints nothing and returns 1. Single source of truth for the compose-name list (NP-222) --
+    # n1_resolve_local_testing_mode, hooks/session-start.sh's enable offer, and n1-init step 08 all
+    # call this instead of each keeping their own copy of the list.
+    local dir="${1:-.}" f
+    for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+        if [ -f "$dir/$f" ]; then printf '%s' "$f"; return 0; fi
+    done
+    return 1
+}
+
+n1_resolve_local_testing_mode() {
+    # Usage: n1_resolve_local_testing_mode [repo_dir]
+    # Prints the local-testing mode. Precedence: explicit localTesting.mode >
+    # localTesting.autoLive=true + root compose file -> live > startCommand set -> live > test.
+    local dir="${1:-.}" mode
+    mode=$(n1_config_val '.localTesting.mode')
+    if [ -n "$mode" ]; then printf '%s' "$mode"; return 0; fi
+    if [ "$(n1_config_val '.localTesting.autoLive')" = "true" ] && n1_compose_file "$dir" >/dev/null; then
+        printf 'live'; return 0
+    fi
+    if [ -n "$(n1_config_val '.localTesting.startCommand')" ]; then printf 'live'; return 0; fi
+    printf 'test'
+}
+
+n1_copy_worktree_files() {
+    # Usage: n1_copy_worktree_files <main_checkout> <worktree_path>
+    # Copies each worktree.copyFiles entry (relative file path, e.g. ".env") from the main
+    # checkout into a new worktree. Copies only when the destination is missing and the path is
+    # git-ignored in the worktree (so it can never be committed). Rejects absolute paths and
+    # '..' segments (config is user-authored, but an escape would write outside the worktree).
+    # Missing sources are skipped. Prints the number of files copied; always returns 0.
+    local src="$1" dst="$2" file f n=0
+    file=$(n1_config_file)
+    if [ ! -f "$file" ] || ! command -v jq >/dev/null 2>&1; then printf '0'; return 0; fi
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in
+            /*|[A-Za-z]:*) echo "N1: worktree.copyFiles entry rejected (absolute path): $f" >&2; continue ;;
+        esac
+        case "/$f/" in
+            */../*) echo "N1: worktree.copyFiles entry rejected ('..' segment): $f" >&2; continue ;;
+        esac
+        [ -e "$dst/$f" ] && continue
+        [ -f "$src/$f" ] || continue
+        if ! git -C "$dst" check-ignore -q -- "$f" 2>/dev/null; then
+            echo "N1: worktree.copyFiles entry skipped (not git-ignored in worktree): $f" >&2
+            continue
+        fi
+        mkdir -p "$(dirname "$dst/$f")" && cp -p "$src/$f" "$dst/$f" && n=$((n + 1))
+    done < <(jq -r '.worktree.copyFiles // [] | .[]? | strings' "$file" 2>/dev/null)
+    printf '%s' "$n"
+}
+
 n1_ci_checks_val() {
     # Usage: n1_ci_checks_val <key>
     # Keys: enabled, maxFixAttempts, confidenceThreshold

@@ -65,6 +65,7 @@ Config file: `$N1_HOME/config.json` (renamed from `n1.config.json` in v2.0.0).
 **Worktree config options** (in `$N1_HOME/config.json`):
 - `worktree.mode` — isolation mode: `"worktree"` (default, worktree at `.claude/worktrees/<ID>/`), `"branch"` (feature branch in current checkout), or `"external"` (force external worktree mode — skip all isolation, reuse current checkout and branch). Auto-detection of external worktrees takes precedence over all modes except `"external"` itself. Overridable per-run with `--branch` flag.
 - `worktree.setup` — command to install dependencies in a worktree. Derived silently by `n1-init` from lockfiles (override for non-standard projects). Runs **lazily on first code-executing step** (implementation, or qa/review/local-testing on a resumed run), not at worktree creation — marker-guarded so it runs at most once per worktree.
+- `worktree.copyFiles` — array of relative file paths (e.g. `[".env"]`) copied from the main checkout into a newly created worktree by `Ensure Worktree` (`n1_copy_worktree_files` in `lib/config.sh`). A file is copied only when the destination is missing and the path is git-ignored in the worktree, so copied files are never committed. Absolute paths and `..` segments are rejected; missing sources are skipped. Default: none.
 - `worktree.cleanup` — when to auto-remove the worktree: `"after-merge"` (default, removed after merge by n1-finish; `"after-pr"` is a permanent backward-compatible alias) or `"manual"` (only via `/n1:n1-clean`). Does not apply to external worktrees (cleanup is skipped automatically via path gate).
 
 Each step reads ONLY its declared dependencies:
@@ -279,13 +280,19 @@ Optional complexity classification and delivery time estimation. Gated on `estim
 
 ## Local Testing
 
-When `localTesting.enabled` is true, n1-start runs a local verification phase (Step 9) after Review and before PR. Behavior depends on `localTesting.mode` (configured by `n1-init`, or inferred: startCommand present -> `"live"`, absent -> `"test"`):
+When `localTesting.enabled` is true, n1-start runs a local verification phase (Step 9) after Review and before PR. Behavior depends on `localTesting.mode` (configured by `n1-init`, or inferred by `n1_resolve_local_testing_mode`: `localTesting.autoLive: true` plus a root compose file -> `"live"`; startCommand present -> `"live"`; otherwise `"test"`):
 
 - **`"live"`** (default when startCommand is configured): The local-test-planner discovers infrastructure, app startup (auto-detected or via `localTesting.startCommand` config override), and existing e2e test suites. Execution runs existing e2e tests first, then generates ad-hoc curl/CLI scenarios only for acceptance criteria not covered by the e2e suite. Enforces Runtime First mandate (NP-78).
 - **`"test"`** (default when no startCommand): Runs existing test suites only with no infrastructure startup. The planner suppresses Runtime First and produces test-suite-only plans.
 - **`"smoke"`** (cloud-native services): Skips the local-testing step entirely with `smoke_deferred` telemetry. After merge and deployment, n1-finish runs post-deploy verification (health endpoint check via `localTesting.smokeEndpoint`, custom commands via `localTesting.smokeTests`).
 
 Bounded fix loop (live/test modes): `localTesting.maxFixAttempts` (default 3). On by default; configured by `n1-init`.
+
+`localTesting.autoLive` (bool, default `false`) — opt-in: when `true` and `mode` is unset, a root `compose.yaml`/`compose.yml`/`docker-compose.yaml`/`docker-compose.yml` resolves mode to `"live"`. An explicit `mode` always wins. Not a `pipeline.json` gate (it changes mode resolution, it does not skip a step). `n1-init` asks about it only when a compose file is detected.
+
+The QA dedup gate (skip when every QA Runner command is pytest) applies in `"test"` mode only. `localTesting.teardownCommand`, when set, runs in the 9c cleanup step on every attempt, including failed ones.
+
+**Enable offer:** when a root compose file exists but live testing would not run (`enabled: false` or resolved mode is not `"live"`), `hooks/session-start.sh` injects a `LOCAL TESTING OFFER` instruction: if the user asks for local/docker/e2e testing, the orchestrator performs that test, then offers once to enable live testing (writes `enabled: true`, `autoLive: true`; never touches `mode`). A decline is not re-offered in that conversation; when a ticket is active, the answer is logged as a Decision Ledger audit row. Nothing is injected when live testing is already on.
 
 Local testing owns all live-app verification -- starting services, running e2e suites, hitting real endpoints. QA owns the unit test suite. These scopes are independently defined; neither is conditional on the other being enabled.
 
