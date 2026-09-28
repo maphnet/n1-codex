@@ -233,7 +233,7 @@ The `### Linked Error Tracker Issue` section is tracker ticket mode only; includ
 
 `*Briefed by N1 (queue plan)*` (n1-queue's plan-time brief) is not an idempotency marker; grade briefed tickets normally.
 
-**Queue children:** wrap every tracker description update below (Empty/Skeletal step 3, Weak step 2) in `references/desc-hash-chain.md` under the plugin root (`source ~/.n1/preamble.sh` sets `$N1_ROOT`): § Before the write on the description you fetched, § After the write once the update succeeds. The procedure's Gate makes this a no-op outside queue runs.
+**Queue children:** wrap every tracker description update below (Empty/Skeletal step 3, Weak step 2) in `references/desc-hash-chain.md` under the plugin root (`source ~/.n1/preamble.sh` sets `$N1_ROOT`): run § Gate, then § Before the write on the description you fetched, § After the write once the update succeeds. § Gate is a no-op outside queue runs.
 
 Run this assessment AFTER the Fetch section has populated context data (step 1) but BEFORE the final distill (step 9). The analysis in steps 7-8 runs on the ORIGINAL description regardless of enrichment outcome — enrichment writes to the tracker, not to the analyst's working copy.
 
