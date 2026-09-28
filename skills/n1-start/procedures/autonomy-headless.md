@@ -51,11 +51,10 @@ fi
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 NEW_HASH=$(n1_queue_content_hash "<current-title-file>" "<current-desc-file>")
-OLD_HASH="<Desc Checksum from above>"
-if [ -n "$NEW_HASH" ] && [ -n "$OLD_HASH" ] && [ "$NEW_HASH" = "$OLD_HASH" ]; then echo MATCH; else echo MISMATCH; fi
+if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "$ID" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi
 ```
 
-`n1_queue_content_hash` fails closed (SEC-5): it prints nothing when either file is missing, so a failed re-fetch never reads as "unchanged". `MISMATCH` — including an empty `NEW_HASH` or an empty `Desc Checksum` — means the ticket changed since planning (or was never hashed); the plan-time answer no longer applies. Fall through to the escalation below, unchanged.
+`n1_desc_hash_is_trusted` checks the trusted set (NP-231). The set holds the plan-time Desc Checksum and any hash this queue run recorded in `$N1_HOME/memory/<ID>/.desc-hashes` after one of N1's own description writes (`<N1_ROOT>/references/desc-hash-chain.md`: product-analyst enrichment, post-brainstorm enrichment, investigation update, estimation). A hash is recorded only when the text N1 overwrote was already trusted, so a human edit after planning never enters the set. Both helpers fail closed (SEC-5). `n1_queue_content_hash` prints nothing when either file is missing, so a failed re-fetch never reads as "unchanged". `n1_desc_hash_is_trusted` re-applies the SEC-L1 `run_id` check and trusts nothing when the plan row, its checksum, or a well-formed hash is missing. A missing or unreadable `.desc-hashes` leaves only the plan hash trusted. `MISMATCH` means the ticket changed since planning (or was never hashed), so the plan-time answer no longer applies. Fall through to the escalation below, unchanged.
 
 **Comment check (SEC-2).** Even on `MATCH`, a human can add scope in a comment without touching the title or description, after the plan was made. Read `$N1_QUEUE_DIR/queue.md`'s frontmatter `planned_at`, then fetch the ticket's comments (Jira: embedded in the `READ_OP` response above, no separate call; YouTrack: `mcp__<TRACKER_MCP>__<operations.getComments>`) and check each human (non-bot) comment's created timestamp against it. Any human comment created after `planned_at`: treat this exactly like `MISMATCH` above — fall through to the escalation below, unchanged.
 

@@ -1851,8 +1851,14 @@ test_headless_plan_wiring() {
         "$(grep -qF 'MISMATCH' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: title and desc are written to files, never a bare shell string (SEC-1)" "yes" \
         "$(grep -q 'n1_queue_content_hash "<current-title-file>" "<current-desc-file>"' "$h" && echo yes || echo no)"
-    assert_eq "headless-plan: requires both hashes non-empty before MATCH (SEC-5)" "yes" \
-        "$(grep -q '\[ -n "\$NEW_HASH" \] && \[ -n "\$OLD_HASH" \]' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: MATCH needs a non-empty live hash in the trusted set (SEC-5, NP-231)" "yes" \
+        "$(grep -qF 'if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "$ID" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: trusted set names N1's recorded writes (.desc-hashes)" "yes" \
+        "$(grep -qF '.desc-hashes' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: single-value equality against OLD_HASH is gone" "no" \
+        "$(grep -qF '[ "$NEW_HASH" = "$OLD_HASH" ]' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: points at the chain procedure" "yes" \
+        "$(grep -qF 'references/desc-hash-chain.md' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: checks for post-plan human comments (SEC-2)" "yes" \
         "$(grep -qF 'Comment check (SEC-2)' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: a post-plan comment falls through like MISMATCH (SEC-2)" "yes" \
