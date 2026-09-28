@@ -248,3 +248,47 @@ n1_extract_sections() {
         END { if (printing && last != "") print "" }
     ' "$file"
 }
+
+# _n1_title_words — stdin → unique lowercase [a-z0-9] words of length >= 3, one per line (C-sorted).
+_n1_title_words() {
+    { LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C grep -oE '[a-z0-9]{3,}' || true; } | LC_ALL=C sort -u
+}
+
+# n1_memory_reuse_check <memory_dir> <fresh_title>
+# Ticket-ID reuse guard (NP-235). When <memory_dir> holds a finished run (overview.md `step: done`)
+# and fewer than 60% of <fresh_title>'s words appear in the stored ticket.md (fallback: overview H1),
+# moves the dir to <dir>-old (then -old-2 .. -old-50, never overwriting) and prints the new path.
+# Prints nothing and leaves memory untouched otherwise, including any empty/missing input
+# (fail open to "related"). Returns non-zero only if mv fails.
+n1_memory_reuse_check() {
+    local dir="${1%/}" fresh="${2:-}" ov step fwords stored total hits n target
+    ov="$dir/overview.md"
+    [ -f "$ov" ] || return 0
+    # Reuse the existing frontmatter reader (handles the frontmatter block + CRLF strip)
+    # instead of a second hand-rolled parser — same idiom as lib/cache.sh:66.
+    source "$(dirname "${BASH_SOURCE[0]}")/frontmatter.sh"
+    step=$(n1_read_frontmatter "$ov" step)
+    [ "$step" = "done" ] || return 0
+    fwords=$(printf '%s\n' "$fresh" | _n1_title_words)
+    [ -n "$fwords" ] || return 0
+    if [ -s "$dir/ticket.md" ]; then
+        stored=$(_n1_title_words < "$dir/ticket.md")
+    else
+        stored=$({ grep -m1 '^# ' "$ov" || true; } | _n1_title_words)
+    fi
+    [ -n "$stored" ] || return 0
+    total=$(printf '%s\n' "$fwords" | wc -l)
+    hits=$(LC_ALL=C comm -12 <(printf '%s\n' "$fwords") <(printf '%s\n' "$stored") | wc -l)
+    # ponytail: containment >= 0.6 calibrated on 16 N1 tickets (0 self false-archives, some unrelated
+    # pairs kept as related = safe direction); tune this ratio if reuse detection misfires.
+    [ $(( hits * 10 )) -ge $(( total * 6 )) ] && return 0
+    for n in $(seq 1 50); do
+        target="${dir}-old"; [ "$n" -gt 1 ] && target="${target}-${n}"
+        [ -e "$target" ] && continue
+        mv "$dir" "$target" || return 1
+        printf '%s\n' "$target"
+        return 0
+    done
+    echo "n1_memory_reuse_check: ${dir}-old .. -old-50 all taken; leaving $dir untouched" >&2
+    return 0
+}
