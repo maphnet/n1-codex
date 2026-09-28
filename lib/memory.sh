@@ -315,6 +315,10 @@ n1_archive_stale_branch() {
         esac
     done < <(git worktree list --porcelain 2>/dev/null || true)
 
+    if git show-ref --verify --quiet "refs/heads/${branch}${suffix}"; then
+        echo "n1_archive_stale_branch: target branch ${branch}${suffix} already exists; leaving $branch intact" >&2
+        return 1
+    fi
     if [ -n "$wt_path" ] && ! git worktree move "$wt_path" "${wt_path}${suffix}" 2>/dev/null; then
         echo "n1_archive_stale_branch: failed to move worktree $wt_path to ${wt_path}${suffix}" >&2
         return 1
@@ -322,10 +326,6 @@ n1_archive_stale_branch() {
 
     git show-ref --verify --quiet "refs/heads/$branch" || return 0
 
-    if git show-ref --verify --quiet "refs/heads/${branch}${suffix}"; then
-        echo "n1_archive_stale_branch: target branch ${branch}${suffix} already exists; leaving $branch intact" >&2
-        return 1
-    fi
     if ! git branch -m "$branch" "${branch}${suffix}" 2>/dev/null; then
         echo "n1_archive_stale_branch: failed to rename branch $branch to ${branch}${suffix}" >&2
         return 1

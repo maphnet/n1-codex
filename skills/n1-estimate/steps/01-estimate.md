@@ -47,6 +47,7 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"
 ARCHIVED=$(n1_memory_reuse_check "$N1_HOME/memory/$ID" "$(cat "$N1_HOME/memory/.fresh-title-$ID.txt")")
 rm -f "$N1_HOME/memory/.fresh-title-$ID.txt"
+echo "ARCHIVED=$ARCHIVED"
 ```
 Non-empty `ARCHIVED` (ID reused by an unrelated ticket; old memory moved there): run the full pipeline as a fresh run. Empty `ARCHIVED` (including a failed archive move): reuse the existing files — skip to the estimation step directly. This avoids duplicate work when the user runs n1-estimate before n1-start.
 

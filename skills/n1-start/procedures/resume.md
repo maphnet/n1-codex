@@ -29,14 +29,10 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"
 ARCHIVED=$(n1_memory_reuse_check "$N1_HOME/memory/$ID" "$(cat "$N1_HOME/memory/.fresh-title-$ID.txt")")
 rm -f "$N1_HOME/memory/.fresh-title-$ID.txt"
+[ -n "$ARCHIVED" ] && n1_archive_stale_branch "<TARGET>" "${ARCHIVED##*/$ID}"
+echo "ARCHIVED=$ARCHIVED"
 ```
-Non-empty `ARCHIVED`: tell the user old memory moved to `$ARCHIVED`, then archive the stale working branch for `<ID>` (`git.branchPattern` applied to `<ID>`, same derivation as `workspace-isolation.md`) so it isn't reused by the new ticket, and continue as **Not exists**:
-```bash
-source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/memory.sh"
-n1_archive_stale_branch "<TARGET>" "${ARCHIVED##*/$ID}"
-```
-Empty `ARCHIVED` (including a failed archive move): resume as today.
+`<TARGET>` is the working branch for `<ID>` (as in `workspace-isolation.md`); renaming it keeps the new ticket off the old commits. Non-empty `ARCHIVED`: tell the user old memory moved there, continue as **Not exists**. Empty `ARCHIVED` (including a failed archive move): resume as today.
 
 Step `escalated` + non-headless: print `## Escalations`, move to `inProgress` (if `tracker.statuses.blocked` set), reset step per `procedures/autonomy-headless.md`.
 
