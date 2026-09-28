@@ -62,6 +62,15 @@ n1_title_hints_investigation() {
     echo "$1" | grep -qiE '\b(investigation|investigate|spike|research)\b'
 }
 
+# n1_title_vague <title-file> → 0 when the title alone can't carry a queue brief: ≤3 words once a
+# leading ticket key ("NP-231:") is stripped (NP-231). File-based, never a string argument: a title
+# is untrusted tracker text (NP-203 SEC-1). Missing file → vague (fail closed: the queue excludes).
+# ponytail: word-count heuristic; add a stop-word list if short-but-clear titles get excluded.
+n1_title_vague() {
+    [ -f "$1" ] || return 0
+    [ "$(( $(sed -E '1s/^[[:space:]]*[A-Z][A-Z0-9_]*-[0-9]+[[:space:]]*[:.-]?//' "$1" | wc -w) ))" -le 3 ]
+}
+
 # Backward-compatible wrapper: tags only.
 n1_detect_investigation() {
     local tags="$2"

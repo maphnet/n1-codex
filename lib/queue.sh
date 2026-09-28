@@ -363,6 +363,43 @@ n1_queue_content_hash() {
     { cat "$1"; printf '\n'; cat "$2"; } | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1
 }
 
+n1_desc_hash_is_trusted() {
+    # Usage: n1_desc_hash_is_trusted <ticket-id> <sha256>
+    # NP-231 trusted-hash chain. Exit 0 when <sha256> is the ticket's plan-time Desc Checksum or a
+    # hash this queue run recorded after one of N1's own description writes (n1_desc_hash_record);
+    # exit 1 otherwise. Hashes come only from n1_queue_content_hash over file-written tracker text
+    # (SEC-1). Fails closed (SEC-5): a malformed id/hash, no trustworthy plan (N1_QUEUE_DIR or
+    # N1_QUEUE_RUN_ID unset, or queue.md run_id mismatch, SEC-L1), or an empty plan checksum
+    # trusts nothing; a missing/unreadable .desc-hashes leaves only the plan hash.
+    local id="$1" h="$2" plan f
+    [[ "$id" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || return 1
+    [[ "$h" =~ ^[0-9a-f]{64}$ ]] || return 1
+    [ -n "${N1_QUEUE_DIR:-}" ] && [ -n "${N1_QUEUE_RUN_ID:-}" ] || return 1
+    [ "$(n1_read_frontmatter "$N1_QUEUE_DIR/queue.md" run_id 2>/dev/null)" = "$N1_QUEUE_RUN_ID" ] || return 1
+    plan=$(n1_queue_decisions_row "$N1_QUEUE_DIR/queue.md" "$id" 2>/dev/null | cut -f4)
+    [ -n "$plan" ] || return 1
+    [ "$h" = "$plan" ] && return 0
+    f="${N1_HOME:-}/memory/$id/.desc-hashes"
+    [ -n "${N1_HOME:-}" ] && [ -r "$f" ] || return 1
+    RID="$N1_QUEUE_RUN_ID" H="$h" awk -F'\t' '$1 == ENVIRON["RID"] && $2 == ENVIRON["H"] { ok = 1 } END { exit !ok }' "$f" 2>/dev/null
+}
+
+n1_desc_hash_record() {
+    # Usage: n1_desc_hash_record <ticket-id> <pre-write-sha256> <post-write-sha256>
+    # NP-231: append "<N1_QUEUE_RUN_ID>\t<post>" to $N1_HOME/memory/<id>/.desc-hashes only when
+    # <pre> (the live hash snapshotted right before N1's tracker write) is already trusted, so a
+    # human edit that landed before the write is never laundered into the trusted set.
+    # Exit 1 and record nothing on any failure (SEC-5).
+    # ponytail: check-then-write window; a human edit landing between N1's write and its
+    # re-fetch is absorbed. Single writer per ticket in queue runs; close with a tracker-side
+    # conditional update (version/ETag) if it bites.
+    local id="$1" pre="$2" post="$3"
+    n1_desc_hash_is_trusted "$id" "$pre" || return 1
+    [[ "$post" =~ ^[0-9a-f]{64}$ ]] || return 1
+    [ -n "${N1_HOME:-}" ] || return 1
+    mkdir -p "$N1_HOME/memory/$id" && printf '%s\t%s\n' "$N1_QUEUE_RUN_ID" "$post" >> "$N1_HOME/memory/$id/.desc-hashes"
+}
+
 n1_queue_stale() {
     # Usage: n1_queue_stale <queue.md>
     # Exit 0 when frontmatter planned_at is older than queue.staleAfterHours (default 24),

@@ -28,7 +28,12 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 `STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending`:
 1. Call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket.
 2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary.
-3. Otherwise write the fresh title and description to `<QUEUE_DIR>/desc/<KEY>.title` and `<QUEUE_DIR>/desc/<KEY>.txt` (file-write, as in preview.md § Plan-Resolve 1 — never through a shell string, NP-203 SEC-1) and compare its hash with the saved one:
+3. Otherwise clear the row's scratch files first, so a failed write below never leaves the stale plan snapshot to hash as `SAME`:
+   ```bash
+   source ~/.n1/preamble.sh
+   rm -f "<QUEUE_DIR>/desc/<KEY>.title" "<QUEUE_DIR>/desc/<KEY>.txt"
+   ```
+   Then write the fresh title and description to those same paths (file-write, as in preview.md § Plan-Resolve 1 — never through a shell string, NP-203 SEC-1) and compare its hash with the saved one:
    ```bash
    source ~/.n1/preamble.sh
    source "$N1_ROOT/lib/queue.sh"
@@ -36,7 +41,7 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
    OLD=$(n1_queue_decisions_row "<QUEUE_DIR>/queue.md" "<KEY>" | cut -f4)
    if [ -n "$NEW" ] && [ -n "$OLD" ] && [ "$NEW" = "$OLD" ]; then echo SAME; else echo CHANGED; fi
    ```
-   `n1_queue_content_hash` fails closed (SEC-5): empty output on either side means "changed", never "no-op". `SAME`: no-op. `CHANGED`: re-plan this ticket only: intake.md § Blocker check, § Description quality and § Duplicate check (`CONTEXT=queue`) for it, then preview.md § Plan-Resolve 4 for it. Record what changed for this ticket, then update its `## Decisions` row via `n1_queue_decisions_write_row` and its Plan row (Status/Reason via `n1_queue_row_status`, `skip` when now excluded), passing free text as in § Write plan: from a file-written `cells.tsv` line, never a quoted literal.
+   `n1_queue_content_hash` fails closed (SEC-5): empty output on either side means "changed", never "no-op". `SAME`: no-op. `CHANGED`: re-plan this ticket only: intake.md § Blocker check, § Description quality and § Duplicate check (`CONTEXT=queue`) for it, then preview.md § Plan-Resolve 1 (brief when now Empty/Skeletal, then the snapshot) and § Plan-Resolve 4 for it. The row's new Desc Checksum is `n1_queue_content_hash` over the rewritten `desc/<KEY>.title`/`.txt`, so it stays post-brief like the original plan. Record what changed for this ticket, then update its `## Decisions` row via `n1_queue_decisions_write_row` and its Plan row (Status/Reason via `n1_queue_row_status`, `skip` when now excluded), passing free text as in § Write plan: from a file-written `cells.tsv` line, never a quoted literal.
 
    **Re-run overlap order globally (CR-1: the runner executes Plan rows in physical row order, so a row-local reorder is not enough).** After every changed row above is updated, collect Touches for every remaining pending row (from its `## Decisions` row; the just-updated ticket's already-fresh value) and run:
    ```bash

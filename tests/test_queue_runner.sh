@@ -24,6 +24,7 @@ export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 source "${REPO_ROOT}/lib/config.sh"
 source "${REPO_ROOT}/lib/frontmatter.sh"
 source "${REPO_ROOT}/lib/queue.sh"
+source "${REPO_ROOT}/lib/validation.sh"
 
 # --- n1_story_parse_service (migrated from test_story_lib.sh) ----------------
 test_parse_service() {
@@ -1615,6 +1616,212 @@ EOF
     assert_eq "content-hash: fails closed (empty, nonzero) when desc file is missing (SEC-5)" "1 " "$rc $out"
 }
 
+# NP-231: trusted-hash chain. N1's own description writes stay trusted; a human edit never does.
+test_desc_hash_chain() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    local N1_HOME="$tmp/home" N1_QUEUE_DIR="$tmp/q" N1_QUEUE_RUN_ID="run-1"
+    local f="$tmp/home/memory/T-1/.desc-hashes" rc h0 h1 h2 h3 h4
+    mkdir -p "$N1_QUEUE_DIR" "$tmp/v" "$tmp/home/memory/T-2"
+    printf 'Add retry' > "$tmp/v/title"
+    printf 'v0' > "$tmp/v/d0"
+    printf 'v0 + N1 enrichment' > "$tmp/v/d1"
+    printf 'v0 + human scope' > "$tmp/v/d2"
+    printf 'human scope + N1 enrichment' > "$tmp/v/d3"
+    printf 'v0 + N1 enrichment + N1 estimate' > "$tmp/v/d4"
+    h0=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d0")
+    h1=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d1")
+    h2=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d2")
+    h3=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d3")
+    h4=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d4")
+    cat > "$N1_QUEUE_DIR/queue.md" <<EOF
+---
+run_id: run-1
+step: run
+---
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | | | security: pre-authorize | $h0 | |
+| T-2 | | | security: pre-authorize | | |
+EOF
+    _chain_trusted() { n1_desc_hash_is_trusted "$1" "$2" && echo TRUSTED || echo UNTRUSTED; }
+    # Mirrors the decision line in autonomy-headless.md § Content check (asserted verbatim in test_headless_plan_wiring).
+    _chain_guard() {
+        local NEW_HASH ID=T-1
+        NEW_HASH=$(n1_queue_content_hash "$tmp/v/title" "$1") || NEW_HASH=""
+        if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "$ID" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi
+    }
+
+    assert_eq "chain: plan hash is trusted" "TRUSTED" "$(_chain_trusted T-1 "$h0")"
+    assert_eq "chain: guard MATCH on the planned text" "MATCH" "$(_chain_guard "$tmp/v/d0")"
+    assert_eq "chain: an unrecorded write is not trusted" "MISMATCH" "$(_chain_guard "$tmp/v/d1")"
+
+    # N1 write after a trusted pre-write hash: recorded and accepted.
+    rc=0; n1_desc_hash_record T-1 "$h0" "$h1" || rc=$?
+    assert_eq "chain: record after a trusted pre-write hash succeeds" "0" "$rc"
+    assert_eq "chain: record line is run_id<TAB>hash" "run-1	$h1" "$(cat "$f")"
+    assert_eq "chain: guard MATCH after N1's own write" "MATCH" "$(_chain_guard "$tmp/v/d1")"
+    assert_eq "chain: plan hash still trusted after a record" "TRUSTED" "$(_chain_trusted T-1 "$h0")"
+
+    # Regression (AC): a human description edit after planning still produces MISMATCH.
+    assert_eq "chain: human edit after planning -> MISMATCH" "MISMATCH" "$(_chain_guard "$tmp/v/d2")"
+
+    # Untrusted pre-write hash: N1's write on top of a human edit is never recorded.
+    rc=0; n1_desc_hash_record T-1 "$h2" "$h3" || rc=$?
+    assert_eq "chain: record refuses an untrusted pre-write hash" "1" "$rc"
+    assert_eq "chain: refused record leaves .desc-hashes untouched" "1" "$(wc -l < "$f" | tr -d ' ')"
+    assert_eq "chain: N1 write over a human edit still -> MISMATCH" "MISMATCH" "$(_chain_guard "$tmp/v/d3")"
+
+    # Chained N1 writes: a recorded hash is a valid pre-write hash for the next write; append never clobbers.
+    rc=0; n1_desc_hash_record T-1 "$h1" "$h4" || rc=$?
+    assert_eq "chain: record after a recorded pre-write hash succeeds" "0" "$rc"
+    assert_eq "chain: record appends without clobbering prior lines" "2" "$(wc -l < "$f" | tr -d ' ')"
+    assert_eq "chain: guard MATCH after a second N1 write" "MATCH" "$(_chain_guard "$tmp/v/d4")"
+
+    # SEC-5: missing / unreadable .desc-hashes falls back to the plan hash only, never "accept all".
+    mv "$f" "$f.bak"
+    assert_eq "chain: missing .desc-hashes -> recorded hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "$h1")"
+    assert_eq "chain: missing .desc-hashes -> plan hash still trusted" "TRUSTED" "$(_chain_trusted T-1 "$h0")"
+    mv "$f.bak" "$f"
+    if [ "$(id -u)" -ne 0 ]; then
+        chmod 000 "$f"
+        assert_eq "chain: unreadable .desc-hashes -> recorded hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "$h1")"
+        assert_eq "chain: unreadable .desc-hashes -> plan hash still trusted" "TRUSTED" "$(_chain_trusted T-1 "$h0")"
+        chmod 600 "$f"
+    fi
+
+    # Records are scoped to the run that wrote them.
+    printf 'run-0\t%s\n' "$h2" >> "$f"
+    assert_eq "chain: a hash recorded by another run is not trusted" "UNTRUSTED" "$(_chain_trusted T-1 "$h2")"
+
+    # SEC-L1: no trustworthy plan -> nothing trusted, nothing recorded.
+    assert_eq "chain: N1_QUEUE_RUN_ID unset -> plan hash untrusted" "UNTRUSTED" "$(N1_QUEUE_RUN_ID=""; _chain_trusted T-1 "$h0")"
+    assert_eq "chain: N1_QUEUE_DIR unset -> recorded hash untrusted" "UNTRUSTED" "$(N1_QUEUE_DIR=""; _chain_trusted T-1 "$h1")"
+    assert_eq "chain: queue.md run_id mismatch -> untrusted" "UNTRUSTED" "$(N1_QUEUE_RUN_ID=run-9; _chain_trusted T-1 "$h0")"
+    assert_eq "chain: no plan -> record refused" "1" "$(N1_QUEUE_RUN_ID=""; n1_desc_hash_record T-1 "$h0" "$h1" && echo 0 || echo 1)"
+    assert_eq "chain: refused records never touch the file" "3" "$(wc -l < "$f" | tr -d ' ')"
+
+    # Empty plan checksum = no chain root, even when .desc-hashes names the hash.
+    printf 'run-1\t%s\n' "$h1" > "$tmp/home/memory/T-2/.desc-hashes"
+    assert_eq "chain: empty plan checksum -> recorded hash untrusted" "UNTRUSTED" "$(_chain_trusted T-2 "$h1")"
+
+    # Malformed input fails closed.
+    assert_eq "chain: empty hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "")"
+    assert_eq "chain: multi-line hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "$(printf 'x\n%s' "$h0")")"
+    assert_eq "chain: 63-char hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "${h0:0:63}")"
+    assert_eq "chain: path-like ticket id untrusted" "UNTRUSTED" "$(_chain_trusted '../T-1' "$h0")"
+    assert_eq "chain: malformed post hash never recorded" "1" "$(n1_desc_hash_record T-1 "$h0" 'not-a-hash' && echo 0 || echo 1)"
+
+    # TQ-2 (NP-231 CR-1/SEC-1): a stale .desc-pre.* left by a prior write site must not
+    # launder a skipped Before step. Mirrors the Gate's `rm -f` (desc-hash-chain.md § Gate):
+    # once cleared, a skipped Before leaves PRE unreadable, so the record fails closed
+    # instead of reusing the previous site's trusted PRE hash.
+    local M="$tmp/home/memory/T-1" PRE lines_before
+    printf 'stale pre title' > "$M/.desc-pre.title"
+    printf 'stale pre desc' > "$M/.desc-pre.txt"
+    printf 'stale post title' > "$M/.desc-post.title"
+    printf 'stale post desc' > "$M/.desc-post.txt"
+    rm -f "$M"/.desc-pre.* "$M"/.desc-post.*
+    PRE=$(n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt") || PRE=""
+    assert_eq "TQ-2: cleared pre files -> PRE hash empty when Before is skipped" "" "$PRE"
+    lines_before=$(wc -l < "$f" | tr -d ' ')
+    rc=0; n1_desc_hash_record T-1 "$PRE" "$h1" || rc=$?
+    assert_eq "TQ-2: empty PRE -> record fails closed" "1" "$rc"
+    assert_eq "TQ-2: .desc-hashes untouched by the failed record" "$lines_before" "$(wc -l < "$f" | tr -d ' ')"
+
+    # TQ-3 (NP-231 cycle 2, SEC-1/SEC-5): a human title edit between the pre-write and
+    # post-write fetch must never be laundered as an N1 write, even when the description
+    # hash chain is otherwise trusted. Exercises the documented After snippet verbatim.
+    printf 'Add retry' > "$M/.desc-pre.title"
+    printf 'v0 + N1 enrichment' > "$M/.desc-pre.txt"
+    printf 'Human retitled this' > "$M/.desc-post.title"
+    printf 'v0 + N1 enrichment' > "$M/.desc-post.txt"
+    local PRE POST
+    PRE=$(n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt")
+    POST=$(n1_queue_content_hash "$M/.desc-post.title" "$M/.desc-post.txt")
+    cmp -s "$M/.desc-pre.title" "$M/.desc-post.title" || POST=""
+    assert_eq "TQ-3: title change clears POST before record" "" "$POST"
+    lines_before=$(wc -l < "$f" | tr -d ' ')
+    rc=0; n1_desc_hash_record T-1 "$PRE" "$POST" || rc=$?
+    assert_eq "TQ-3: title-changed record fails closed" "1" "$rc"
+    assert_eq "TQ-3: .desc-hashes untouched when the title changed" "$lines_before" "$(wc -l < "$f" | tr -d ' ')"
+}
+
+# NP-231: vague-title heuristic behind the queue's "no usable content" exclusion.
+test_title_vague() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    _vague() { printf '%s' "$1" > "$tmp/t"; n1_title_vague "$tmp/t" && echo vague || echo ok; }
+    assert_eq "title-vague: one word" "vague" "$(_vague 'Fix')"
+    assert_eq "title-vague: three words" "vague" "$(_vague 'Fix the thing')"
+    assert_eq "title-vague: four words is usable" "ok" "$(_vague 'Add retry to uploader')"
+    assert_eq "title-vague: normal title" "ok" "$(_vague 'Brief thin queue tickets at plan time')"
+    assert_eq "title-vague: key prefix stripped before counting" "vague" "$(_vague 'NP-231: fix it')"
+    assert_eq "title-vague: key-prefixed normal title" "ok" "$(_vague 'NP-231: brief thin queue tickets at plan time')"
+    assert_eq "title-vague: empty title" "vague" "$(_vague '')"
+    rm -f "$tmp/t"
+    assert_eq "title-vague: missing file fails closed (vague -> excluded)" "vague" "$(n1_title_vague "$tmp/t" && echo vague || echo ok)"
+    printf '$(touch %s/pwned) `touch %s/pwned2`' "$tmp" "$tmp" > "$tmp/t"
+    n1_title_vague "$tmp/t" || true
+    assert_eq "title-vague: title text is never executed (SEC-1)" "no" "$([ -e "$tmp/pwned" ] || [ -e "$tmp/pwned2" ] && echo yes || echo no)"
+}
+
+# NP-231: every N1 description write in a queue child goes through the hash chain.
+test_desc_chain_wiring() {
+    local r="$REPO_ROOT" f d="$REPO_ROOT/references/desc-hash-chain.md" pa="$REPO_ROOT/agents/product-analyst.md"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    for f in agents/product-analyst.md skills/n1-start/steps/brainstorm.md \
+             skills/n1-start/steps/investigation-deliverable.md skills/n1-start/steps/estimation.md; do
+        assert_eq "chain-wiring: $f routes its description write through desc-hash-chain.md" "yes" "$(_hasF 'references/desc-hash-chain.md' "$r/$f")"
+    done
+    assert_eq "chain-wiring: product-analyst wires both write paths (Empty/Skeletal step 3, Weak step 2)" "yes" "$(_hasF 'Empty/Skeletal step 3, Weak step 2' "$pa")"
+    assert_eq "chain-wiring: procedure is gated on N1_QUEUE_RUN_ID" "yes" "$(_hasF '[ -n "${N1_QUEUE_RUN_ID:-}" ]' "$d")"
+    assert_eq "chain-wiring: pre-write text is hashed from files (SEC-1)" "yes" "$(_hasF 'n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt"' "$d")"
+    assert_eq "chain-wiring: post-write text is re-fetched and hashed from files" "yes" "$(_hasF 'n1_queue_content_hash "$M/.desc-post.title" "$M/.desc-post.txt"' "$d")"
+    assert_eq "chain-wiring: records only via the gated helper" "yes" "$(_hasF 'n1_desc_hash_record "<ID>" "$PRE" "$POST"' "$d")"
+    assert_eq "chain-wiring: a title change clears POST before the record (SEC-1/SEC-5)" "yes" "$(_hasF 'cmp -s "$M/.desc-pre.title" "$M/.desc-post.title" || POST=""' "$d")"
+    assert_eq "chain-wiring: forbids appending to .desc-hashes any other way" "yes" "$(_hasF 'Never append to `.desc-hashes` any other way' "$d")"
+    assert_eq "chain-wiring: procedure runs no raw append to .desc-hashes" "0" "$(grep -cE '>>[^|]*desc-hashes' "$d" 2>/dev/null || true)"
+    assert_eq "chain-wiring: Gate clears stale pre/post scratch files (CR-1/SEC-1)" "2" "$(grep -cF 'rm -f "$M"/.desc-pre.* "$M"/.desc-post.*' "$d" 2>/dev/null || true)"
+    # product-analyst: skip markers unchanged; the queue brief never skips enrichment.
+    assert_eq "chain-wiring: product-analyst skip markers unchanged" "yes" "$(_hasF 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' "$pa")"
+    assert_eq "chain-wiring: Briefed marker never on a skip line" "0" "$(grep -F 'skip enrichment' "$pa" | grep -cF 'Briefed' || true)"
+    assert_eq "chain-wiring: product-analyst grades briefed tickets normally" "yes" "$(_hasF '`*Briefed by N1 (queue plan)*` (n1-queue'"'"'s plan-time brief) is not an idempotency marker' "$pa")"
+
+    # TQ-3 (NP-231 cycle 2): order assertions so removing the SEC-1/SEC-4 cleanup fails a test.
+    local gate_rm chain_echo after_record after_rm
+    gate_rm=$(line_of "$d" 'rm -f "$M"/.desc-pre.* "$M"/.desc-post.*' || true)
+    chain_echo=$(line_of "$d" 'echo CHAIN' || true)
+    assert_eq "chain-wiring: Gate clears scratch files before the CHAIN check" "yes" "$([ -n "$gate_rm" ] && [ -n "$chain_echo" ] && [ "$gate_rm" -lt "$chain_echo" ] && echo yes || echo no)"
+    after_record=$(line_of "$d" 'n1_desc_hash_record "<ID>" "$PRE" "$POST"' || true)
+    after_rm=$(grep -nF 'rm -f "$M"/.desc-pre.* "$M"/.desc-post.*' "$d" | tail -1 | cut -d: -f1)
+    assert_eq "chain-wiring: After's final rm -f runs after the record call" "yes" "$([ -n "$after_record" ] && [ -n "$after_rm" ] && [ "$after_rm" -gt "$after_record" ] && echo yes || echo no)"
+
+    local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless.md" guard_clear_before guard_hash guard_clear_after
+    guard_clear_before=$(line_of "$h" 'rm -f "$N1_HOME/memory/$ID"/.guard-live.*' || true)
+    guard_hash=$(line_of "$h" 'NEW_HASH=$(n1_queue_content_hash "$M/.guard-live.title" "$M/.guard-live.txt")' || true)
+    assert_eq "chain-wiring: guard clears live-fetch files before the hash" "yes" "$([ -n "$guard_clear_before" ] && [ -n "$guard_hash" ] && [ "$guard_clear_before" -lt "$guard_hash" ] && echo yes || echo no)"
+    guard_clear_after=$(line_of "$h" 'rm -f "$M"/.guard-live.*' || true)
+    assert_eq "chain-wiring: guard clears live-fetch files after computing NEW_HASH" "yes" "$([ -n "$guard_hash" ] && [ -n "$guard_clear_after" ] && [ "$guard_clear_after" -gt "$guard_hash" ] && echo yes || echo no)"
+}
+
+# NP-231: thin tickets get a plan-time brief instead of a word-count exclusion.
+test_brief_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue" b c
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "brief: intake no longer excludes on word count" "no" "$(grep -qE '30 words|description too thin' "$s/steps/intake.md" && echo yes || echo no)"
+    assert_eq "brief: intake's only content exclusion reason" "yes" "$(_hasF 'no usable content: empty description, vague title' "$s/steps/intake.md")"
+    assert_eq "brief: intake checks the title from a file (SEC-1)" "yes" "$(_hasF 'n1_title_vague "<QUEUE_DIR>/desc/<KEY>.title"' "$s/steps/intake.md")"
+    assert_eq "brief: intake reuses product-analyst tiers" "yes" "$(_hasF 'agents/product-analyst.md' "$s/steps/intake.md")"
+    assert_eq "brief: intake never re-briefs a briefed ticket" "yes" "$(_hasF '*Briefed by N1 (queue plan)*' "$s/steps/intake.md")"
+    assert_eq "brief: preview writes the marked brief" "yes" "$(_hasF '*Briefed by N1 (queue plan)*' "$s/steps/preview.md")"
+    assert_eq "brief: preview re-fetches briefed tickets before the snapshot" "yes" "$(_hasF 'Re-fetch each briefed candidate' "$s/steps/preview.md")"
+    b=$(line_of "$s/steps/preview.md" '*Briefed by N1 (queue plan)*' || true)
+    c=$(line_of "$s/steps/preview.md" 'n1_queue_content_hash' || true)
+    assert_eq "brief: Desc Checksum is taken after the brief" "yes" "$([ -n "$b" ] && [ -n "$c" ] && [ "$b" -lt "$c" ] && echo yes || echo no)"
+    assert_eq "brief: preview shows briefs before Start" "yes" "$(_hasF 'Brief <KEY>:' "$s/steps/preview.md")"
+    assert_eq "brief: --run re-plan re-runs Plan-Resolve 1 so the checksum stays post-brief" "yes" "$(_hasF 'preview.md § Plan-Resolve 1' "$s/steps/run.md")"
+}
+
 
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
 test_overlap_order() {
@@ -1676,6 +1883,10 @@ test_row_status
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
+test_desc_hash_chain
+test_title_vague
+test_desc_chain_wiring
+test_brief_wiring
 test_overlap_order
 test_release_wiring
 test_already_run
@@ -1732,9 +1943,15 @@ test_headless_plan_wiring() {
     assert_eq "headless-plan: falls through to escalation on hash mismatch (SEC-1)" "yes" \
         "$(grep -qF 'MISMATCH' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: title and desc are written to files, never a bare shell string (SEC-1)" "yes" \
-        "$(grep -q 'n1_queue_content_hash "<current-title-file>" "<current-desc-file>"' "$h" && echo yes || echo no)"
-    assert_eq "headless-plan: requires both hashes non-empty before MATCH (SEC-5)" "yes" \
-        "$(grep -q '\[ -n "\$NEW_HASH" \] && \[ -n "\$OLD_HASH" \]' "$h" && echo yes || echo no)"
+        "$(grep -q 'n1_queue_content_hash "\$M/.guard-live.title" "\$M/.guard-live.txt"' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: MATCH needs a non-empty live hash in the trusted set (SEC-5, NP-231)" "yes" \
+        "$(grep -qF 'if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "$ID" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: trusted set names N1's recorded writes (.desc-hashes)" "yes" \
+        "$(grep -qF '.desc-hashes' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: single-value equality against OLD_HASH is gone" "no" \
+        "$(grep -qF '[ "$NEW_HASH" = "$OLD_HASH" ]' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: points at the chain procedure" "yes" \
+        "$(grep -qF 'references/desc-hash-chain.md' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: checks for post-plan human comments (SEC-2)" "yes" \
         "$(grep -qF 'Comment check (SEC-2)' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: a post-plan comment falls through like MISMATCH (SEC-2)" "yes" \
