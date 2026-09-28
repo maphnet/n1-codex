@@ -41,7 +41,14 @@ Write to `$N1_HOME/memory/$ID/` as usual:
 - **File mode:** `<ID>` is a filename slug
 - **Brain dump:** `<ID>` is a description slug
 
-If `$N1_HOME/memory/$ID/` already has `ticket.md`, `analysis.md`, and `brainstorm.md` from a prior run, reuse them — skip to the estimation step directly. This avoids duplicate work when the user runs n1-estimate before n1-start.
+If `$N1_HOME/memory/$ID/` already has `ticket.md`, `analysis.md`, and `brainstorm.md` from a prior run, first (ticket mode with `tracker.operations.readTicket` set) fetch the ticket via `mcp__<tracker.mcp>__<readTicket>` (any error → skip) and write its title to `$N1_HOME/memory/.fresh-title-$ID.txt` with the file-write mechanism (never through a shell string — a ticket title is untrusted tracker text, and interpolating it into a shell string executed here is command injection, NP-203 SEC-1). Then run:
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/memory.sh"
+ARCHIVED=$(n1_memory_reuse_check "$N1_HOME/memory/$ID" "$(cat "$N1_HOME/memory/.fresh-title-$ID.txt")")
+rm -f "$N1_HOME/memory/.fresh-title-$ID.txt"
+```
+Non-empty `ARCHIVED` (ID reused by an unrelated ticket; old memory moved there): run the full pipeline as a fresh run. Otherwise reuse them — skip to the estimation step directly. This avoids duplicate work when the user runs n1-estimate before n1-start.
 
 **No working branch creation.** This is a read-only analysis — do not create or switch branches.
 
