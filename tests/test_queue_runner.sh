@@ -1615,6 +1615,103 @@ EOF
     assert_eq "content-hash: fails closed (empty, nonzero) when desc file is missing (SEC-5)" "1 " "$rc $out"
 }
 
+# NP-231: trusted-hash chain. N1's own description writes stay trusted; a human edit never does.
+test_desc_hash_chain() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    local N1_HOME="$tmp/home" N1_QUEUE_DIR="$tmp/q" N1_QUEUE_RUN_ID="run-1"
+    local f="$tmp/home/memory/T-1/.desc-hashes" rc h0 h1 h2 h3 h4
+    mkdir -p "$N1_QUEUE_DIR" "$tmp/v" "$tmp/home/memory/T-2"
+    printf 'Add retry' > "$tmp/v/title"
+    printf 'v0' > "$tmp/v/d0"
+    printf 'v0 + N1 enrichment' > "$tmp/v/d1"
+    printf 'v0 + human scope' > "$tmp/v/d2"
+    printf 'human scope + N1 enrichment' > "$tmp/v/d3"
+    printf 'v0 + N1 enrichment + N1 estimate' > "$tmp/v/d4"
+    h0=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d0")
+    h1=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d1")
+    h2=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d2")
+    h3=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d3")
+    h4=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d4")
+    cat > "$N1_QUEUE_DIR/queue.md" <<EOF
+---
+run_id: run-1
+step: run
+---
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | | | security: pre-authorize | $h0 | |
+| T-2 | | | security: pre-authorize | | |
+EOF
+    _chain_trusted() { n1_desc_hash_is_trusted "$1" "$2" && echo TRUSTED || echo UNTRUSTED; }
+    # Mirrors the decision line in autonomy-headless.md § Content check (asserted verbatim in test_headless_plan_wiring).
+    _chain_guard() {
+        local NEW_HASH ID=T-1
+        NEW_HASH=$(n1_queue_content_hash "$tmp/v/title" "$1") || NEW_HASH=""
+        if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "$ID" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi
+    }
+
+    assert_eq "chain: plan hash is trusted" "TRUSTED" "$(_chain_trusted T-1 "$h0")"
+    assert_eq "chain: guard MATCH on the planned text" "MATCH" "$(_chain_guard "$tmp/v/d0")"
+    assert_eq "chain: an unrecorded write is not trusted" "MISMATCH" "$(_chain_guard "$tmp/v/d1")"
+
+    # N1 write after a trusted pre-write hash: recorded and accepted.
+    rc=0; n1_desc_hash_record T-1 "$h0" "$h1" || rc=$?
+    assert_eq "chain: record after a trusted pre-write hash succeeds" "0" "$rc"
+    assert_eq "chain: record line is run_id<TAB>hash" "run-1	$h1" "$(cat "$f")"
+    assert_eq "chain: guard MATCH after N1's own write" "MATCH" "$(_chain_guard "$tmp/v/d1")"
+    assert_eq "chain: plan hash still trusted after a record" "TRUSTED" "$(_chain_trusted T-1 "$h0")"
+
+    # Regression (AC): a human description edit after planning still produces MISMATCH.
+    assert_eq "chain: human edit after planning -> MISMATCH" "MISMATCH" "$(_chain_guard "$tmp/v/d2")"
+
+    # Untrusted pre-write hash: N1's write on top of a human edit is never recorded.
+    rc=0; n1_desc_hash_record T-1 "$h2" "$h3" || rc=$?
+    assert_eq "chain: record refuses an untrusted pre-write hash" "1" "$rc"
+    assert_eq "chain: refused record leaves .desc-hashes untouched" "1" "$(wc -l < "$f" | tr -d ' ')"
+    assert_eq "chain: N1 write over a human edit still -> MISMATCH" "MISMATCH" "$(_chain_guard "$tmp/v/d3")"
+
+    # Chained N1 writes: a recorded hash is a valid pre-write hash for the next write; append never clobbers.
+    rc=0; n1_desc_hash_record T-1 "$h1" "$h4" || rc=$?
+    assert_eq "chain: record after a recorded pre-write hash succeeds" "0" "$rc"
+    assert_eq "chain: record appends without clobbering prior lines" "2" "$(wc -l < "$f" | tr -d ' ')"
+    assert_eq "chain: guard MATCH after a second N1 write" "MATCH" "$(_chain_guard "$tmp/v/d4")"
+
+    # SEC-5: missing / unreadable .desc-hashes falls back to the plan hash only, never "accept all".
+    mv "$f" "$f.bak"
+    assert_eq "chain: missing .desc-hashes -> recorded hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "$h1")"
+    assert_eq "chain: missing .desc-hashes -> plan hash still trusted" "TRUSTED" "$(_chain_trusted T-1 "$h0")"
+    mv "$f.bak" "$f"
+    if [ "$(id -u)" -ne 0 ]; then
+        chmod 000 "$f"
+        assert_eq "chain: unreadable .desc-hashes -> recorded hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "$h1")"
+        assert_eq "chain: unreadable .desc-hashes -> plan hash still trusted" "TRUSTED" "$(_chain_trusted T-1 "$h0")"
+        chmod 600 "$f"
+    fi
+
+    # Records are scoped to the run that wrote them.
+    printf 'run-0\t%s\n' "$h2" >> "$f"
+    assert_eq "chain: a hash recorded by another run is not trusted" "UNTRUSTED" "$(_chain_trusted T-1 "$h2")"
+
+    # SEC-L1: no trustworthy plan -> nothing trusted, nothing recorded.
+    assert_eq "chain: N1_QUEUE_RUN_ID unset -> plan hash untrusted" "UNTRUSTED" "$(N1_QUEUE_RUN_ID=""; _chain_trusted T-1 "$h0")"
+    assert_eq "chain: N1_QUEUE_DIR unset -> recorded hash untrusted" "UNTRUSTED" "$(N1_QUEUE_DIR=""; _chain_trusted T-1 "$h1")"
+    assert_eq "chain: queue.md run_id mismatch -> untrusted" "UNTRUSTED" "$(N1_QUEUE_RUN_ID=run-9; _chain_trusted T-1 "$h0")"
+    assert_eq "chain: no plan -> record refused" "1" "$(N1_QUEUE_RUN_ID=""; n1_desc_hash_record T-1 "$h0" "$h1" && echo 0 || echo 1)"
+    assert_eq "chain: refused records never touch the file" "3" "$(wc -l < "$f" | tr -d ' ')"
+
+    # Empty plan checksum = no chain root, even when .desc-hashes names the hash.
+    printf 'run-1\t%s\n' "$h1" > "$tmp/home/memory/T-2/.desc-hashes"
+    assert_eq "chain: empty plan checksum -> recorded hash untrusted" "UNTRUSTED" "$(_chain_trusted T-2 "$h1")"
+
+    # Malformed input fails closed.
+    assert_eq "chain: empty hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "")"
+    assert_eq "chain: multi-line hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "$(printf 'x\n%s' "$h0")")"
+    assert_eq "chain: 63-char hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "${h0:0:63}")"
+    assert_eq "chain: path-like ticket id untrusted" "UNTRUSTED" "$(_chain_trusted '../T-1' "$h0")"
+    assert_eq "chain: malformed post hash never recorded" "1" "$(n1_desc_hash_record T-1 "$h0" 'not-a-hash' && echo 0 || echo 1)"
+}
+
 
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
 test_overlap_order() {
@@ -1676,6 +1773,7 @@ test_row_status
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
+test_desc_hash_chain
 test_overlap_order
 test_release_wiring
 test_already_run
