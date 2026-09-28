@@ -1711,6 +1711,23 @@ EOF
     assert_eq "chain: 63-char hash untrusted" "UNTRUSTED" "$(_chain_trusted T-1 "${h0:0:63}")"
     assert_eq "chain: path-like ticket id untrusted" "UNTRUSTED" "$(_chain_trusted '../T-1' "$h0")"
     assert_eq "chain: malformed post hash never recorded" "1" "$(n1_desc_hash_record T-1 "$h0" 'not-a-hash' && echo 0 || echo 1)"
+
+    # TQ-2 (NP-231 CR-1/SEC-1): a stale .desc-pre.* left by a prior write site must not
+    # launder a skipped Before step. Mirrors the Gate's `rm -f` (desc-hash-chain.md § Gate):
+    # once cleared, a skipped Before leaves PRE unreadable, so the record fails closed
+    # instead of reusing the previous site's trusted PRE hash.
+    local M="$tmp/home/memory/T-1" PRE lines_before
+    printf 'stale pre title' > "$M/.desc-pre.title"
+    printf 'stale pre desc' > "$M/.desc-pre.txt"
+    printf 'stale post title' > "$M/.desc-post.title"
+    printf 'stale post desc' > "$M/.desc-post.txt"
+    rm -f "$M"/.desc-pre.* "$M"/.desc-post.*
+    PRE=$(n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt") || PRE=""
+    assert_eq "TQ-2: cleared pre files -> PRE hash empty when Before is skipped" "" "$PRE"
+    lines_before=$(wc -l < "$f" | tr -d ' ')
+    rc=0; n1_desc_hash_record T-1 "$PRE" "$h1" || rc=$?
+    assert_eq "TQ-2: empty PRE -> record fails closed" "1" "$rc"
+    assert_eq "TQ-2: .desc-hashes untouched by the failed record" "$lines_before" "$(wc -l < "$f" | tr -d ' ')"
 }
 
 # NP-231: vague-title heuristic behind the queue's "no usable content" exclusion.
@@ -1746,10 +1763,11 @@ test_desc_chain_wiring() {
     assert_eq "chain-wiring: records only via the gated helper" "yes" "$(_hasF 'n1_desc_hash_record "<ID>" "$PRE" "$POST"' "$d")"
     assert_eq "chain-wiring: forbids appending to .desc-hashes any other way" "yes" "$(_hasF 'Never append to `.desc-hashes` any other way' "$d")"
     assert_eq "chain-wiring: procedure runs no raw append to .desc-hashes" "0" "$(grep -cE '>>[^|]*desc-hashes' "$d" 2>/dev/null || true)"
+    assert_eq "chain-wiring: Gate clears stale pre/post scratch files (CR-1/SEC-1)" "2" "$(grep -cF 'rm -f "$M"/.desc-pre.* "$M"/.desc-post.*' "$d" 2>/dev/null || true)"
     # product-analyst: skip markers unchanged; the queue brief never skips enrichment.
     assert_eq "chain-wiring: product-analyst skip markers unchanged" "yes" "$(_hasF 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' "$pa")"
     assert_eq "chain-wiring: Briefed marker never on a skip line" "0" "$(grep -F 'skip enrichment' "$pa" | grep -cF 'Briefed' || true)"
-    assert_eq "chain-wiring: product-analyst enriches briefed tickets in full" "yes" "$(_hasF '`*Briefed by N1 (queue plan)*` (n1-queue'"'"'s plan-time brief) is not an enrichment marker' "$pa")"
+    assert_eq "chain-wiring: product-analyst grades briefed tickets normally" "yes" "$(_hasF '`*Briefed by N1 (queue plan)*` (n1-queue'"'"'s plan-time brief) is not an idempotency marker' "$pa")"
 }
 
 # NP-231: thin tickets get a plan-time brief instead of a word-count exclusion.
@@ -1763,8 +1781,8 @@ test_brief_wiring() {
     assert_eq "brief: intake never re-briefs a briefed ticket" "yes" "$(_hasF '*Briefed by N1 (queue plan)*' "$s/steps/intake.md")"
     assert_eq "brief: preview writes the marked brief" "yes" "$(_hasF '*Briefed by N1 (queue plan)*' "$s/steps/preview.md")"
     assert_eq "brief: preview re-fetches briefed tickets before the snapshot" "yes" "$(_hasF 'Re-fetch each briefed candidate' "$s/steps/preview.md")"
-    b=$(grep -nF '*Briefed by N1 (queue plan)*' "$s/steps/preview.md" | head -1 | cut -d: -f1)
-    c=$(grep -nF 'n1_queue_content_hash' "$s/steps/preview.md" | head -1 | cut -d: -f1)
+    b=$(line_of "$s/steps/preview.md" '*Briefed by N1 (queue plan)*' || true)
+    c=$(line_of "$s/steps/preview.md" 'n1_queue_content_hash' || true)
     assert_eq "brief: Desc Checksum is taken after the brief" "yes" "$([ -n "$b" ] && [ -n "$c" ] && [ "$b" -lt "$c" ] && echo yes || echo no)"
     assert_eq "brief: preview shows briefs before Start" "yes" "$(_hasF 'Brief <KEY>:' "$s/steps/preview.md")"
     assert_eq "brief: --run re-plan re-runs Plan-Resolve 1 so the checksum stays post-brief" "yes" "$(_hasF 'preview.md § Plan-Resolve 1' "$s/steps/run.md")"
