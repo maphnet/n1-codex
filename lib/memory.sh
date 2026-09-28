@@ -292,3 +292,43 @@ n1_memory_reuse_check() {
     echo "n1_memory_reuse_check: ${dir}-old .. -old-50 all taken; leaving $dir untouched" >&2
     return 0
 }
+
+# n1_archive_stale_branch <branch> <suffix>
+# NP-235 CR-1: after n1_memory_reuse_check archives memory for a reused ticket ID, the stale
+# working branch/worktree left over from the finished run must not be reused by the new ticket.
+# Mirrors the memory archive: rename only, never delete.
+#   - Worktree with <branch> checked out (per `git worktree list --porcelain`): moved to
+#     <path><suffix>. Move failure -> warn to stderr, return 1 (branch is left untouched).
+#   - Branch <branch> exists: renamed to <branch><suffix> (`git branch -m`, never -M).
+#     Target name already taken -> warn to stderr, return 1.
+#   - Neither exists -> no-op, return 0.
+# Prints the new branch name on success.
+n1_archive_stale_branch() {
+    local branch="$1" suffix="$2"
+    [ -n "$branch" ] && [ -n "$suffix" ] || return 0
+
+    local wt_path="" cur_path=""
+    while IFS= read -r line; do
+        case "$line" in
+            "worktree "*) cur_path="${line#worktree }" ;;
+            "branch refs/heads/$branch") wt_path="$cur_path" ;;
+        esac
+    done < <(git worktree list --porcelain 2>/dev/null || true)
+
+    if [ -n "$wt_path" ] && ! git worktree move "$wt_path" "${wt_path}${suffix}" 2>/dev/null; then
+        echo "n1_archive_stale_branch: failed to move worktree $wt_path to ${wt_path}${suffix}" >&2
+        return 1
+    fi
+
+    git show-ref --verify --quiet "refs/heads/$branch" || return 0
+
+    if git show-ref --verify --quiet "refs/heads/${branch}${suffix}"; then
+        echo "n1_archive_stale_branch: target branch ${branch}${suffix} already exists; leaving $branch intact" >&2
+        return 1
+    fi
+    if ! git branch -m "$branch" "${branch}${suffix}" 2>/dev/null; then
+        echo "n1_archive_stale_branch: failed to rename branch $branch to ${branch}${suffix}" >&2
+        return 1
+    fi
+    printf '%s\n' "${branch}${suffix}"
+}

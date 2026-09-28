@@ -6,6 +6,12 @@ PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1"; echo "--- expected"; echo "$2"; echo "--- actual"; echo "$3"; FAIL=$((FAIL+1)); fi; }
 source "$REPO_ROOT/lib/memory.sh"
 source "$REPO_ROOT/lib/frontmatter.sh"
+
+# TQ-1: fail loudly if the functions under test are missing, rather than
+# silently passing every "" assertion below.
+type n1_memory_reuse_check >/dev/null 2>&1 || { echo "FAIL: n1_memory_reuse_check is not defined"; exit 1; }
+type n1_archive_stale_branch >/dev/null 2>&1 || { echo "FAIL: n1_archive_stale_branch is not defined"; exit 1; }
+
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 M="$T/memory"; mkdir -p "$M"
 
@@ -100,5 +106,40 @@ assert_eq "no side-effect file created" "no" "$([ -e "$MARKER" ] && echo yes || 
 printf -- '---\r\nstep: implementation\r\n---\r\n\r\n# CRLF title\r\n' > "$T/crlf.md"
 n1_write_frontmatter "$T/crlf.md" step done >/dev/null
 assert_eq "CRLF write_frontmatter updates key" "done" "$(n1_read_frontmatter "$T/crlf.md" step)"
+
+# --- CR-1: n1_archive_stale_branch ---
+GIT_REPO="$T/repo"; mkdir -p "$GIT_REPO"
+git -c user.name=t -c user.email=t@t.t init -q "$GIT_REPO"
+(cd "$GIT_REPO" && git -c user.name=t -c user.email=t@t.t commit -q --allow-empty -m init)
+git -C "$GIT_REPO" branch -M main >/dev/null 2>&1 || true
+
+# 14. Plain branch, no worktree → renamed to <b>-old
+git -C "$GIT_REPO" branch np-235 main
+OUT=$(cd "$GIT_REPO" && n1_archive_stale_branch np-235 -old)
+assert_eq "plain branch renamed" "np-235-old" "$OUT"
+assert_eq "old branch name gone" "no" "$(git -C "$GIT_REPO" branch --list np-235 | grep -q . && echo yes || echo no)"
+assert_eq "new branch name exists" "yes" "$(git -C "$GIT_REPO" branch --list np-235-old | grep -q . && echo yes || echo no)"
+
+# 15. Branch with a worktree checked out → worktree moved + branch renamed
+git -C "$GIT_REPO" branch np-236 main
+WT="$T/wt-np-236"
+git -C "$GIT_REPO" worktree add -q "$WT" np-236
+OUT=$(cd "$GIT_REPO" && n1_archive_stale_branch np-236 -old)
+assert_eq "branch+worktree renamed" "np-236-old" "$OUT"
+assert_eq "worktree moved" "yes" "$([ -d "${WT}-old" ] && echo yes || echo no)"
+assert_eq "old worktree path gone" "no" "$([ -d "$WT" ] && echo yes || echo no)"
+
+# 16. Target branch name already taken → returns 1, leaves original branch intact
+git -C "$GIT_REPO" branch np-237 main
+git -C "$GIT_REPO" branch np-237-old main
+set +e
+OUT=$(cd "$GIT_REPO" && n1_archive_stale_branch np-237 -old 2>/dev/null); RC=$?
+set -e
+assert_eq "existing target branch fails" "1:" "$RC:$OUT"
+assert_eq "original branch untouched" "yes" "$(git -C "$GIT_REPO" branch --list np-237 | grep -q . && echo yes || echo no)"
+
+# 17. No branch, no worktree → no-op, returns 0, prints nothing
+OUT=$(cd "$GIT_REPO" && n1_archive_stale_branch np-999-does-not-exist -old)
+assert_eq "no-op prints nothing" "" "$OUT"
 
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
