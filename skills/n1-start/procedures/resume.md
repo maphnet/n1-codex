@@ -23,14 +23,20 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists.
 source ~/.n1/preamble.sh
 TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
 ```
-**ID reuse check** — only if `<input>` is a tracker ticket ID, `step` is `done`, and `tracker.operations.readTicket` is set: fetch the ticket via `mcp__<tracker.mcp>__<readTicket>` (any error → skip this check entirely, continue resuming as today) and write its title to `$N1_HOME/memory/.fresh-title-$ID.txt` with the file-write mechanism (never through a shell string — a ticket title is untrusted tracker text, and interpolating it into a shell string executed here is command injection, NP-203 SEC-1). The scratch file is a sibling of `$N1_HOME/memory/$ID/`, not inside it, so an unrelated-title archive can't sweep it into `<ID>-old`. Then:
+**ID reuse check** — if `<input>` is a tracker ID, `step` is `done`, and `readTicket` is configured: fetch the ticket (error → skip) and write its title to `$N1_HOME/memory/.fresh-title-$ID.txt` (a sibling of `$N1_HOME/memory/$ID/`, so an archive can't sweep it in) via the file-write mechanism, never a shell string (untrusted text, NP-203 SEC-1).
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"
 ARCHIVED=$(n1_memory_reuse_check "$N1_HOME/memory/$ID" "$(cat "$N1_HOME/memory/.fresh-title-$ID.txt")")
 rm -f "$N1_HOME/memory/.fresh-title-$ID.txt"
 ```
-Non-empty `ARCHIVED`: tell the user the reused ID's old memory moved to `$ARCHIVED`, then continue as **Not exists**.
+Non-empty `ARCHIVED`: tell the user old memory moved to `$ARCHIVED`, then archive the stale working branch for `<ID>` (`git.branchPattern` applied to `<ID>`, same derivation as `workspace-isolation.md`) so it isn't reused by the new ticket, and continue as **Not exists**:
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/memory.sh"
+n1_archive_stale_branch "<TARGET>" "${ARCHIVED##*/$ID}"
+```
+Empty `ARCHIVED` (including a failed archive move): resume as today.
 
 Step `escalated` + non-headless: print `## Escalations`, move to `inProgress` (if `tracker.statuses.blocked` set), reset step per `procedures/autonomy-headless.md`.
 
