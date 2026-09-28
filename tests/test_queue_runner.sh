@@ -208,6 +208,55 @@ EOF
     n1_queue_row_status "$tmp/q.md" "1" "failed" "timeout"
     local r1; r1=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$9)} $2 ~ /^ *1 *$/ && NF>=9 {print $9}' "$tmp/q.md")
     assert_eq "row_status: reason set" "timeout" "$r1"
+
+    # SEC-3: literal backslash-escapes in a status/reason cell never split the row or forge a `|`.
+    n1_queue_row_status "$tmp/q.md" "1" 'st\n1' 'reason\n|inject\174'
+    assert_eq "row_status: literal \\n never splits the row" "1" "$(grep -c '^| 1 ' "$tmp/q.md")"
+    local r2; r2=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$9)} $2 ~ /^ *1 *$/ && NF>=9 {print $9}' "$tmp/q.md")
+    assert_eq "row_status: literal \\n and \\174 in reason never forge a pipe" "reasonninject174" "$r2"
+    # Every other cell of the written row, and the sibling row, are untouched.
+    assert_eq "row_status: other cells of row 1 untouched" "1" "$(grep -cxF '| 1 | T-1 | Fix A | /r | /h | sonnet | stn1 | reasonninject174 |' "$tmp/q.md")"
+    assert_eq "row_status: row 2 untouched" "1" "$(grep -cxF '| 2 | T-2 | Fix B | /r | /h | opus | pending | |' "$tmp/q.md")"
+
+    # NP-203 SEC-4 / CR-1: n1_queue_row_title writes the Title cell ($4), never the Ticket cell ($3).
+    n1_queue_row_title "$tmp/q.md" "2" 'evil title\n|inject\174'
+    assert_eq "row_title: sanitizes title (no split, no pipe)" "evil titleninject174" "$(plan_cell "$tmp/q.md" 2 4)"
+    assert_eq "row_title: Ticket cell unchanged" "T-2" "$(plan_cell "$tmp/q.md" 2 3)"
+    assert_eq "row_title: other cells of row 2 untouched" "1" "$(grep -cxF '| 2 | T-2 | evil titleninject174 | /r | /h | opus | pending | |' "$tmp/q.md")"
+    assert_eq "row_title: row 1 untouched" "1" "$(grep -cxF '| 1 | T-1 | Fix A | /r | /h | sonnet | stn1 | reasonninject174 |' "$tmp/q.md")"
+}
+
+# --- run.md § Write plan cell-fill snippet (NP-203): free text with quotes via cells.tsv ---
+test_write_plan_cells() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mkdir -p "$tmp/desc"
+    cat > "$tmp/queue.md" <<'EOF2'
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 |  | /r | /h | sonnet | pending |  |
+| 2 | T-2 |  | /r | /h | opus | pending |  |
+
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 |  |  |  |  |  |
+| T-2 |  |  |  |  |  |
+EOF2
+    printf "Fix the user's \"login\" \$(touch %s/pwned)" "$tmp" > "$tmp/desc/T-1.title"; printf 'd1' > "$tmp/desc/T-1.txt"
+    printf 'Plain B' > "$tmp/desc/T-2.title"; printf 'd2' > "$tmp/desc/T-2.txt"
+    printf "1\tT-1\ttag match · it's first\tr:lib\t\tsecurity: narrow\tnarrow:don't touch \"auth\"\n2\tT-2\t\t\tafter T-1 (r:lib)\t\tkeep\tthis" > "$tmp/cells.tsv"  # no trailing newline; tab in last Notes
+    # Run the snippet exactly as run.md ships it (minus the preamble line).
+    local snip; snip=$(awk '/^while IFS= read -r line \|\| \[ -n "\$line" \]; do$/,/^done < "\$QUEUE_DIR\/cells.tsv"$/' "$REPO_ROOT/skills/n1-queue/steps/run.md")
+    QUEUE_DIR="$tmp" bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/queue.sh'; QUEUE_FILE=\"\$QUEUE_DIR/queue.md\"; $snip"
+    assert_eq "write-plan: title with quotes lands in Title cell" "Fix the user's \"login\" \$(touch $tmp/pwned)" "$(plan_cell "$tmp/queue.md" 1 4)"
+    assert_eq "write-plan: title never executed" "no" "$([ -e "$tmp/pwned" ] && echo yes || echo no)"
+    assert_eq "write-plan: reason with apostrophe" "tag match · it's first" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "write-plan: row 2 title" "Plain B" "$(plan_cell "$tmp/queue.md" 2 4)"
+    assert_eq "write-plan: notes with quotes" "narrow:don't touch \"auth\"" "$(n1_queue_decisions_row "$tmp/queue.md" T-1 | cut -f5)"
+    assert_eq "write-plan: empty touches stays empty, order kept" "	after T-1 (r:lib)" "$(n1_queue_decisions_row "$tmp/queue.md" T-2 | cut -f1,2)"
+    assert_eq "write-plan: last row without trailing newline still written" "keep this" "$(n1_queue_decisions_row "$tmp/queue.md" T-2 | cut -f5)"
+    assert_eq "write-plan: checksum from desc files" "$(n1_queue_content_hash "$tmp/desc/T-2.title" "$tmp/desc/T-2.txt")" "$(n1_queue_decisions_row "$tmp/queue.md" T-2 | cut -f4)"
 }
 
 # --- n1_queue_pending_rows ---------------------------------------------------
@@ -282,6 +331,12 @@ test_bg_helpers() {
     cx=$(unset N1_QUEUE_CHILD_STUB; N1_QUEUE_TAG=n1-auto N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
     assert_eq "child_cmd: codex forwards N1_QUEUE_TAG" "yes" \
         "$(case "$cx" in *'N1_QUEUE_TAG=n1-auto '*"codex exec"*) echo yes ;; *) echo "no: $cx" ;; esac)"
+    cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_QUEUE_DIR=/q/dir N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    assert_eq "child_cmd: claude-code forwards N1_QUEUE_DIR" "yes" \
+        "$(case "$cc" in *'N1_QUEUE_DIR'*'/q/dir'*) echo yes ;; *) echo "no: $cc" ;; esac)"
+    cx=$(unset N1_QUEUE_CHILD_STUB; N1_QUEUE_DIR=/q/dir N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
+    assert_eq "child_cmd: codex forwards N1_QUEUE_DIR" "yes" \
+        "$(case "$cx" in *'N1_QUEUE_DIR=/q/dir '*"codex exec"*) echo yes ;; *) echo "no: $cx" ;; esac)"
 
     cat > "$tmp/q.md" <<'EOF'
 ---
@@ -575,6 +630,7 @@ test_runner_tag_release() {
 #!/usr/bin/env bash
 TICKET="$1"
 printf '%s\n' "${N1_QUEUE_TAG:-}" > "$N1_QUEUE_SEEN.tag.$TICKET"
+printf '%s\n' "${N1_QUEUE_DIR:-}" > "$N1_QUEUE_SEEN.dir.$TICKET"
 grep '^queue_tag_removed:' "$N1_QUEUE_OVERVIEW" > "$N1_QUEUE_SEEN.flag.$TICKET" 2>/dev/null || true
 mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
 printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/7\n' > "$N1_QUEUE_OVERVIEW"
@@ -622,6 +678,7 @@ EOF
 
     assert_eq "tag-release: exit 0" "0" "$exit_code"
     assert_eq "tag-release: child sees N1_QUEUE_TAG" "n1-auto" "$(cat "$tmp/seen.tag.T-R")"
+    assert_eq "queue-dir: child sees absolute N1_QUEUE_DIR" "$(cd "$tmp" && pwd)" "$(cat "$tmp/seen.dir.T-R")"
     assert_eq "tag-release: flag reset before child starts" "queue_tag_removed: false" "$(cat "$tmp/seen.flag.T-R")"
     assert_eq "tag-release: finalize stamps queue_run_id" \
         "$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
@@ -1330,13 +1387,172 @@ test_bg_deploy_flag_cleared_mid_run() {
     rm -rf "$tmp"
 }
 
+# NP-203: plan-time ## Decisions lookup and staleness gate.
+test_decisions_and_stale() {
+    local tmp rc out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    cat > "$tmp/q.md" <<EOF
+---
+step: planned
+planned_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | Fix A | /r | /h | sonnet | pending | |
+
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:queue | | security: pre-authorize | 3821 | dup:T-9:continue |
+| T-2 | r:queue,r:lib | after T-1 (r:queue) | | 42 | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    assert_eq "decisions: pre-decision cell" "security: pre-authorize" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f3)"
+    assert_eq "decisions: notes cell" "dup:T-9:continue" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f5)"
+    assert_eq "decisions: order cell" "after T-1 (r:queue)" "$(n1_queue_decisions_row "$tmp/q.md" T-2 | cut -f2)"
+    assert_eq "decisions: empty pre-decision stays empty" "" "$(n1_queue_decisions_row "$tmp/q.md" T-2 | cut -f3)"
+    assert_eq "decisions: checksum after empty cell" "42" "$(n1_queue_decisions_row "$tmp/q.md" T-2 | cut -f4)"
+    assert_eq "decisions: Plan/Runs rows never match" "" "$(n1_queue_decisions_row "$tmp/q.md" 1)"
+    assert_eq "decisions: unknown ticket" "" "$(n1_queue_decisions_row "$tmp/q.md" T-404)"
+    assert_eq "decisions: missing file" "" "$(n1_queue_decisions_row "$tmp/none.md" T-1)"
+
+    assert_eq "stale: fresh plan" "fresh" "$(n1_queue_stale "$tmp/q.md" && echo stale || echo fresh)"
+    n1_write_frontmatter "$tmp/q.md" planned_at "2020-01-01T00:00:00Z"
+    assert_eq "stale: old plan" "stale" "$(n1_queue_stale "$tmp/q.md" && echo stale || echo fresh)"
+    printf -- '---\nstep: planned\n---\n' > "$tmp/p.md"
+    assert_eq "stale: missing planned_at counts as stale" "stale" "$(n1_queue_stale "$tmp/p.md" && echo stale || echo fresh)"
+    n1_write_frontmatter "$tmp/q.md" planned_at "2099-01-01T00:00:00Z"
+    assert_eq "stale: future planned_at counts as stale (SEC-L3)" "stale" "$(n1_queue_stale "$tmp/q.md" && echo stale || echo fresh)"
+
+    # SEC-2: parser fails closed on a forged/duplicated ## Decisions block or duplicate row.
+    cat > "$tmp/forged.md" <<'EOF'
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:queue | | security: pre-authorize | 3821 | |
+
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:evil | | security: pre-authorize | 9999 | |
+EOF
+    assert_eq "decisions: fails closed on duplicate ## Decisions heading" "" "$(n1_queue_decisions_row "$tmp/forged.md" T-1)"
+    cat > "$tmp/dup_row.md" <<'EOF'
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:queue | | security: pre-authorize | 3821 | |
+| T-1 | r:evil | | security: pre-authorize | 9999 | |
+EOF
+    assert_eq "decisions: fails closed on duplicate row for the same ticket" "" "$(n1_queue_decisions_row "$tmp/dup_row.md" T-1)"
+
+    # CR-2: write helper replaces the row and sanitizes cells (untrusted | / newline can't forge columns).
+    n1_queue_decisions_write_row "$tmp/q.md" T-1 'r:queue|evil' $'multi\nline' 'security: pre-authorize' abc123 'note|d'
+    assert_eq "decisions-write: touches sanitized" "r:queueevil" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f1)"
+    assert_eq "decisions-write: order sanitized (newline stripped)" "multi line" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f2)"
+    assert_eq "decisions-write: checksum replaced" "abc123" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f4)"
+    assert_eq "decisions-write: notes sanitized" "noted" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f5)"
+    assert_eq "decisions-write: other row untouched" "1" "$(grep -cxF '| T-2 | r:queue,r:lib | after T-1 (r:queue) | | 42 | |' "$tmp/q.md")"
+    assert_eq "decisions-write: Ticket cell unchanged" "1" "$(grep -cxF '| T-1 | r:queueevil | multi line | security: pre-authorize | abc123 | noted |' "$tmp/q.md")"
+    assert_eq "decisions-write: Plan row with the same ticket untouched" "1" "$(grep -cxF '| 1 | T-1 | Fix A | /r | /h | sonnet | pending | |' "$tmp/q.md")"
+
+    # SEC-3: literal backslash-escapes (as awk -v would re-expand them) never split a row or forge a `|`.
+    n1_queue_decisions_write_row "$tmp/q.md" T-1 't\n1' 'o\1741' 'security: pre-authorize' cksum2 'note\n|inject\174'
+    assert_eq "decisions-write: literal \\n in touches doesn't split the row" "1" "$(grep -c '^| T-1 ' "$tmp/q.md")"
+    assert_eq "decisions-write: literal \\174 in order never becomes a pipe" "o1741" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f2)"
+    assert_eq "decisions-write: literal \\n and \\174 in notes never forge a pipe" "noteninject174" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f5)"
+
+    # CR-5: write helper fails closed on a forged/duplicated ## Decisions heading, like the reader.
+    cp "$tmp/forged.md" "$tmp/forged_write.md"
+    rc=0; n1_queue_decisions_write_row "$tmp/forged_write.md" T-1 evil evil evil evil evil || rc=$?
+    assert_eq "decisions-write: fails closed (nonzero) on duplicate ## Decisions heading (CR-5)" "1" "$rc"
+    assert_eq "decisions-write: forged file left untouched on guard failure" "yes" \
+        "$(diff -q "$tmp/forged.md" "$tmp/forged_write.md" >/dev/null && echo yes || echo no)"
+
+    # SEC-1/SEC-3/SEC-5: content hash takes two file paths (never inline text), fails closed when either is missing.
+    printf 'Title A' > "$tmp/t.txt"
+    printf 'a description' > "$tmp/d.txt"
+    h1=$(n1_queue_content_hash "$tmp/t.txt" "$tmp/d.txt")
+    h2=$(n1_queue_content_hash "$tmp/t.txt" "$tmp/d.txt")
+    assert_eq "content-hash: 64 hex chars (sha256)" "yes" "$(case "$h1" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) echo yes ;; *) echo "no: $h1" ;; esac)"
+    assert_eq "content-hash: stable for identical input" "$h1" "$h2"
+    printf 'a different description' > "$tmp/d2.txt"
+    h3=$(n1_queue_content_hash "$tmp/t.txt" "$tmp/d2.txt")
+    assert_eq "content-hash: changes with description" "yes" "$([ "$h1" != "$h3" ] && echo yes || echo no)"
+    printf 'Title B' > "$tmp/t2.txt"
+    h4=$(n1_queue_content_hash "$tmp/t2.txt" "$tmp/d.txt")
+    assert_eq "content-hash: changes with title" "yes" "$([ "$h1" != "$h4" ] && echo yes || echo no)"
+    rc=0; out=$(n1_queue_content_hash "$tmp/missing-title.txt" "$tmp/d.txt") || rc=$?
+    assert_eq "content-hash: fails closed (empty, nonzero) when title file is missing (SEC-5)" "1 " "$rc $out"
+    rc=0; out=$(n1_queue_content_hash "$tmp/t.txt" "$tmp/missing-desc.txt") || rc=$?
+    assert_eq "content-hash: fails closed (empty, nonzero) when desc file is missing (SEC-5)" "1 " "$rc $out"
+}
+
+
+# NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
+test_overlap_order() {
+    local out
+    out=$(printf '%s\t%s\n' 'T-5' 'r:queue, r:lib' 'T-2' 'r:docs' 'T-3' 'R:Queue' 'T-9' '' | n1_queue_overlap_order)
+    assert_eq "overlap: execution order" "T-2,T-3,T-5,T-9" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    assert_eq "overlap: note on the reordered ticket" "after T-3 (r:queue)" "$(printf '%s\n' "$out" | awk -F'\t' '$1=="T-5"{print $2}')"
+    assert_eq "overlap: unrelated ticket flags its own silent shift" "moved up (unrelated overlap elsewhere)" "$(printf '%s\n' "$out" | awk -F'\t' '$1=="T-2"{print $2}')"
+    assert_eq "overlap: empty touches never overlaps" "" "$(printf '%s\n' "$out" | awk -F'\t' '$1=="T-9"{print $2}')"
+    out=$(printf '%s\t%s\n' 'T-7' 'a' 'T-1' 'b' | n1_queue_overlap_order)
+    assert_eq "overlap: disjoint keeps input order" "T-7,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    out=$(printf '%s\t%s\n' 'T-8' 'x' 'T-4' 'y' 'T-6' 'x,y' | n1_queue_overlap_order)
+    assert_eq "overlap: transitive chain" "T-4,T-6,T-8" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+}
+
+# NP-203: plan/run split wiring in the n1-queue skill text.
+test_plan_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    has() { grep -qE -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "plan-wiring: SKILL.md parses --plan" "yes" "$(has '\-\-plan' "$s/SKILL.md")"
+    assert_eq "plan-wiring: SKILL.md parses --run <queue-id>" "yes" "$(has '\-\-run <queue-id>' "$s/SKILL.md")"
+    assert_eq "plan-wiring: SKILL.md validates the queue id" "yes" "$(has 'A-Za-z0-9' "$s/SKILL.md")"
+    assert_eq "plan-wiring: dry-run still stops in preview" "yes" "$(has 'Dry run -- nothing launched' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: preview resolves duplicates at plan time" "yes" "$(has 'CONTEXT=queue-plan' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: preview orders overlaps via helper" "yes" "$(has 'n1_queue_overlap_order' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: preview pre-scans the stop list" "yes" "$(has 'alwaysAskOn' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: run writes step: planned" "yes" "$(has '^step: planned' "$s/steps/run.md")"
+    assert_eq "plan-wiring: run stamps planned_at" "yes" "$(has 'planned_at' "$s/steps/run.md")"
+    assert_eq "plan-wiring: run has Decisions section" "yes" "$(has '^## Decisions' "$s/steps/run.md")"
+    assert_eq "plan-wiring: --run applies staleness gate" "yes" "$(has 'n1_queue_stale' "$s/steps/run.md")"
+    assert_eq "plan-wiring: queue steps never write overview.md" "no" \
+        "$(cat "$s/steps/intake.md" "$s/steps/preview.md" "$s/steps/run.md" | grep -qE 'n1_write_frontmatter[^|]*overview' && echo yes || echo no)"
+    assert_eq "plan-wiring: staleness re-plan re-orders every pending row (CR-1)" "yes" "$(has 'Re-run overlap order globally' "$s/steps/run.md")"
+    assert_eq "plan-wiring: staleness recheck uses the sha256 hash helper, not cksum" "yes" "$(has 'n1_queue_content_hash' "$s/steps/run.md")"
+    assert_eq "plan-wiring: run.md no longer pipes through cksum" "no" "$(has 'cksum <' "$s/steps/run.md")"
+    assert_eq "plan-wiring: preview snapshot uses the sha256 hash helper, not cksum" "yes" "$(has 'n1_queue_content_hash' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: preview.md no longer pipes through cksum" "no" "$(has 'cksum <' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: intake validates ticket keys before path use (SEC-L4)" "yes" "$(has '\^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\$' "$s/steps/intake.md")"
+
+    # SEC-1: a ticket title is written to a file, never interpolated into a shell string.
+    assert_eq "plan-wiring: preview writes the title to a file before hashing" "yes" "$(has '\.title.*file-write mechanism|file-write mechanism.*\.title' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: preview no longer passes a bare <title> string to content_hash" "no" "$(has 'n1_queue_content_hash "<title>"' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: run.md writes the fresh title to a file before hashing" "yes" "$(has '\.title' "$s/steps/run.md")"
+    assert_eq "plan-wiring: run.md no longer passes a bare <title> string to content_hash" "no" "$(has 'n1_queue_content_hash "<title>"' "$s/steps/run.md")"
+
+    # SEC-4: initial Plan/Decisions rows are built through the sanitizing write helpers, not prose alone.
+    assert_eq "plan-wiring: write plan fills Title via n1_queue_row_title" "yes" "$(has 'n1_queue_row_title' "$s/steps/run.md")"
+    assert_eq "plan-wiring: write plan fills Decisions row via n1_queue_decisions_write_row" "yes" "$(has 'n1_queue_decisions_write_row' "$s/steps/run.md")"
+    assert_eq "plan-wiring: run.md passes no free text as a quoted literal" "no" "$(has "'<(title|reason|notes)[^>]*>'|changed: <status>" "$s/steps/run.md")"
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
+test_plan_wiring
 test_child_status
 test_child_status_deploy
 test_row_status
+test_write_plan_cells
 test_pending_rows
+test_decisions_and_stale
+test_overlap_order
 test_release_wiring
 test_already_run
 test_release_rows
@@ -1369,6 +1585,30 @@ test_bg_working_timeout
 test_bg_missing_grace
 test_bg_disclaimer
 test_busy_guard
+
+# NP-203: queue children apply plan-time pre-decisions; release gate never consults them.
+test_headless_plan_wiring() {
+    local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless.md" l="$REPO_ROOT/skills/n1-start/ledger.md"
+    assert_eq "headless-plan: looks up the Decisions row" "yes" "$(grep -q 'n1_queue_decisions_row "\$N1_QUEUE_DIR/queue.md"' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: logs [plan]" "yes" "$(grep -qF '[plan]' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: release gate excluded" "yes" "$(grep -q 'release confirmation gate never consults' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: ledger documents [plan]" "yes" "$(grep -qF '`[plan]`' "$l" && echo yes || echo no)"
+    assert_eq "headless-plan: verifies queue.md run_id matches N1_QUEUE_RUN_ID (SEC-L1)" "yes" \
+        "$(grep -q 'run_id 2>/dev/null)" = "\$N1_QUEUE_RUN_ID"' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: recomputes the content hash before honouring a pre-decision (SEC-1)" "yes" \
+        "$(grep -qF 'n1_queue_content_hash' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: falls through to escalation on hash mismatch (SEC-1)" "yes" \
+        "$(grep -qF 'MISMATCH' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: title and desc are written to files, never a bare shell string (SEC-1)" "yes" \
+        "$(grep -q 'n1_queue_content_hash "<current-title-file>" "<current-desc-file>"' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: requires both hashes non-empty before MATCH (SEC-5)" "yes" \
+        "$(grep -q '\[ -n "\$NEW_HASH" \] && \[ -n "\$OLD_HASH" \]' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: checks for post-plan human comments (SEC-2)" "yes" \
+        "$(grep -qF 'Comment check (SEC-2)' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: a post-plan comment falls through like MISMATCH (SEC-2)" "yes" \
+        "$(grep -q 'created after .planned_at.: treat this exactly like .MISMATCH' "$h" && echo yes || echo no)"
+}
+test_headless_plan_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

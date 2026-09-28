@@ -2,6 +2,8 @@
 
 Builds the candidate list for the queue. Two modes: tag (search tracker) or story (subtasks of a parent).
 
+**Key validation.** Before any step below uses a candidate's `<KEY>` in a path (`$N1_HOME/memory/<KEY>/`, later `<QUEUE_DIR>/desc/<KEY>.txt`) or as `SELF_ID`, check it against `^[A-Z][A-Z0-9_]*-[0-9]+$` (SEC-L4). A key that doesn't match — a malformed tracker response, never a real ticket ID — is excluded with reason `invalid ticket key`; skip its `READ_OP` call and every later step for it.
+
 ## Tag mode
 
 Search via `mcp__<TRACKER_MCP>__<SEARCH_OP>`:
@@ -65,7 +67,7 @@ For each remaining candidate, assess the description: if the description is empt
 
 ## Duplicate check
 
-For each remaining candidate, follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue`, `TEXT` = candidate title + description, `SELF_ID=<KEY>`, and `OVERVIEW` empty. This check only informs. Matches annotate the candidate's Reason (e.g. `tag match · possible duplicate: <ID>`), and nothing is excluded, prompted, or linked. The blocker check above is independent and unchanged. The child's own n1-start intake repeats the check headlessly and records it.
+For each remaining candidate, follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue`, `TEXT` = candidate title + description, `SELF_ID=<KEY>`, and `OVERVIEW` empty. This pass only informs. Matches annotate the candidate's Reason (e.g. `tag match · possible duplicate: <ID>`), and nothing is excluded, prompted, or linked here. Keep each flagged candidate's `MATCHES` rows and the Gate's `LINK_OP`: the preview resolves them interactively (`CONTEXT=queue-plan`), and queue children skip the check entirely. The blocker check above is independent and unchanged.
 
 ## Model per ticket
 

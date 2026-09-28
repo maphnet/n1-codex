@@ -159,7 +159,8 @@ n1_queue_child_cmd() {
     # claude-code: background-session launch named <session-name>; stdout carries the
     # session id (see n1_queue_parse_launch). <log-path> is unused there.
     # Caller env N1_QUEUE_TAG (tag mode only, else empty) is forwarded so the child can
-    # release the queue tag on handoff (NP-199).
+    # release the queue tag on handoff (NP-199). Caller env N1_QUEUE_DIR (always set by the
+    # runner) is forwarded so the child can read its ## Decisions row (NP-203).
     # Test hook: when N1_QUEUE_CHILD_STUB is set, the command is "$N1_QUEUE_CHILD_STUB" <ticket>.
     local repo="$1" id="$2" model="$3" run_id="$4" log="$5" name="${6:-}"
     if [ -n "${N1_QUEUE_CHILD_STUB:-}" ]; then
@@ -168,28 +169,58 @@ n1_queue_child_cmd() {
     fi
     if [ "$(n1_host)" = claude-code ]; then
         local settings
-        settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" \
-            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
+        settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
+            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
         n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
         return
     fi
-    printf 'cd %q && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_QUEUE_RUN_ID="%s" N1_QUEUE_TAG=%q %s' \
-        "$repo" "$run_id" "${N1_QUEUE_TAG:-}" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
+    printf 'cd %q && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_QUEUE_RUN_ID="%s" N1_QUEUE_TAG=%q N1_QUEUE_DIR=%q %s' \
+        "$repo" "$run_id" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
+}
+
+_n1_queue_sanitize_cell() {
+    # Usage: _n1_queue_sanitize_cell <text>
+    # Strips `|` and backslashes, turns newlines/tabs into spaces, so untrusted text (a ticket title, tracker
+    # status/reason, or plan-time free text) can never forge a table cell or spill into an
+    # adjacent Decisions row (NP-203 SEC-2/CR-2), and can never survive as a `\n`/`\174`-style
+    # escape an awk -v assignment would later re-expand into a literal newline or `|` (SEC-3,
+    # defense in depth alongside the ENVIRON[]-based awk callers below).
+    printf '%s' "$1" | tr '\n\t' '  ' | tr -d '|\\'
 }
 
 n1_queue_row_status() {
     # Usage: n1_queue_row_status <queue.md> <row-number> <status> [reason]
     # Rewrites the Status (and optionally Reason) cell of the Plan table row
-    # whose first cell equals <row-number>.
+    # whose first cell equals <row-number>. Cells are sanitized (NP-203 SEC-2).
     # Row shape: | # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-    local file="$1" row_num="$2" status="$3" reason="${4:-}"
+    # Sanitized values are passed via ENVIRON[], never awk -v (NP-203 SEC-3): -v assignments
+    # undergo string-constant escape processing, so a sanitized value containing a literal
+    # `\n` or `\174` would still re-expand into a real newline/`|` inside awk.
+    local file="$1" row_num="$2" status reason
+    status=$(_n1_queue_sanitize_cell "$3")
+    reason=$(_n1_queue_sanitize_cell "${4:-}")
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
-    awk -v num="$row_num" -v st="$status" -v rsn="$reason" 'BEGIN { FS="|"; OFS="|" } {
+    num="$row_num" st="$status" rsn="$reason" awk 'BEGIN { FS="|"; OFS="|"; num=ENVIRON["num"]; st=ENVIRON["st"]; rsn=ENVIRON["rsn"] } {
         f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
         if (f2 == num && NF >= 9) {
             $8 = " " st " "
             if (rsn != "") $9 = " " rsn " "
         }
+        print
+    }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_row_title() {
+    # Usage: n1_queue_row_title <queue.md> <row-number> <title>
+    # Rewrites the Title cell of the Plan table row whose first cell equals <row-number>
+    # (NP-203 SEC-4: lets run.md build the initial Plan table with sanitized, code-written
+    # cells instead of relying on prose-only sanitization of untrusted ticket titles).
+    local file="$1" row_num="$2" title
+    title=$(_n1_queue_sanitize_cell "$3")
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
+    num="$row_num" ti="$title" awk 'BEGIN { FS="|"; OFS="|"; num=ENVIRON["num"]; ti=ENVIRON["ti"] } {
+        f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
+        if (f2 == num && NF >= 9) { $4 = " " ti " " }
         print
     }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }
@@ -248,6 +279,143 @@ n1_queue_already_run() {
     [ -n "$run" ] || return 1
     [ "$(n1_read_frontmatter "$ov" queue_tag_removed)" = true ] && return 1
     printf '%s' "$run"
+}
+
+n1_queue_decisions_row() {
+    # Usage: n1_queue_decisions_row <queue.md> <ticket>
+    # Prints Touches<TAB>Order<TAB>Pre-Decision<TAB>Desc Checksum<TAB>Notes for <ticket>'s row
+    # in the ## Decisions table (NP-203). Fails closed (prints nothing) unless the file has
+    # exactly one "## Decisions" heading and exactly one matching row for <ticket> — an
+    # untrusted ticket title containing a "## Decisions" line or a forged extra row must
+    # never be trusted to authorize a pre-decision (SEC-2). Section-scoped: Plan/Runs rows
+    # never match. Fields may be empty: read them with cut -f<N>, not IFS=tab read (collapses).
+    [ -f "$1" ] || return 0
+    [ "$(grep -c '^## Decisions$' "$1")" = 1 ] || return 0
+    awk -F'|' -v t="$2" '
+        /^## Decisions$/ { f = 1; next }
+        /^## / { f = 0 }
+        f {
+            for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            if ($2 == t && NF >= 8) { matches++; row = sprintf("%s\t%s\t%s\t%s\t%s", $3, $4, $5, $6, $7) }
+        }
+        END { if (matches == 1) print row }' "$1"
+}
+
+n1_queue_decisions_write_row() {
+    # Usage: n1_queue_decisions_write_row <queue.md> <ticket> <touches> <order> <predecision> <checksum> <notes>
+    # Replaces the ## Decisions row for <ticket> in place; every cell is sanitized (NP-203
+    # CR-2), the write-side counterpart of n1_queue_decisions_row's fail-closed read. No-op
+    # (returns 0) when the file or the row is missing; fails closed (CR-5, mirrors the reader's
+    # own guard) unless the file has exactly one `^## Decisions$` heading — an untrusted title
+    # containing a forged heading line must never be allowed to redirect this write.
+    local file="$1" ticket="$2"
+    [ -f "$file" ] || return 0
+    [ "$(grep -c '^## Decisions$' "$file")" = 1 ] || return 1
+    local touches order predecision checksum notes
+    touches=$(_n1_queue_sanitize_cell "$3")
+    order=$(_n1_queue_sanitize_cell "$4")
+    predecision=$(_n1_queue_sanitize_cell "$5")
+    checksum=$(_n1_queue_sanitize_cell "$6")
+    notes=$(_n1_queue_sanitize_cell "$7")
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
+    # Sanitized values are passed via ENVIRON[], never awk -v (NP-203 SEC-3): see
+    # n1_queue_row_status for why -v's escape processing would undo the sanitizer.
+    t="$ticket" touches="$touches" order="$order" pd="$predecision" cksum="$checksum" notes="$notes" awk '
+        BEGIN {
+            FS = "|"
+            t=ENVIRON["t"]; touches=ENVIRON["touches"]; order=ENVIRON["order"]
+            pd=ENVIRON["pd"]; cksum=ENVIRON["cksum"]; notes=ENVIRON["notes"]
+        }
+        /^## Decisions$/ { f = 1; print; next }
+        /^## / { f = 0 }
+        f {
+            f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
+            if (f2 == t && NF >= 8) {
+                printf "| %s | %s | %s | %s | %s | %s |\n", f2, touches, order, pd, cksum, notes
+                next
+            }
+        }
+        { print }
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_content_hash() {
+    # Usage: n1_queue_content_hash <title-file> <desc-file>
+    # Prints sha256(contents of <title-file> + "\n" + contents of <desc-file>): sha256sum,
+    # shasum -a 256 fallback (NP-203 SEC-3 — replaces cksum/CRC32, which is trivially
+    # forgeable). Both arguments are files, never inline text (NP-203 SEC-1): a ticket title
+    # is untrusted tracker text, and interpolating it into a shell string executed by a
+    # headless child is command injection (CWE-78) — callers must write it to a file with
+    # the file-write mechanism first. Fails closed (SEC-5): prints nothing and returns 1
+    # when either file is missing, so a fetch failure never silently hashes as "unchanged".
+    # Shared by preview.md's Desc Checksum snapshot, run.md's staleness re-check, and the
+    # child-side TOCTOU guard in autonomy-headless.md, so all three agree on one definition
+    # of "changed".
+    [ -f "$1" ] || return 1
+    [ -f "$2" ] || return 1
+    { cat "$1"; printf '\n'; cat "$2"; } | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1
+}
+
+n1_queue_stale() {
+    # Usage: n1_queue_stale <queue.md>
+    # Exit 0 when frontmatter planned_at is older than queue.staleAfterHours (default 24),
+    # missing/unparseable, or in the future (a future planned_at is clock skew or a forged
+    # timestamp, never grounds to treat the plan as fresh — NP-203 SEC-L3). Exit 1 when fresh.
+    local at epoch hours diff
+    at=$(n1_read_frontmatter "$1" planned_at)
+    [ -n "$at" ] || return 0
+    epoch=$(date -u -d "$at" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$at" +%s 2>/dev/null) || return 0
+    hours=$(n1_queue_val staleAfterHours)
+    case "$hours" in ''|*[!0-9]*) hours=24 ;; esac
+    diff=$(( $(date -u +%s) - epoch ))
+    [ "$diff" -lt 0 ] && return 0
+    [ "$diff" -gt $(( hours * 3600 )) ]
+}
+
+n1_queue_overlap_order() {
+    # Usage: printf '%s\t%s\n' <ticket> <touches> ... | n1_queue_overlap_order
+    # Prints "<ticket>\t<note>" in execution order (NP-203). Tickets whose comma-separated
+    # Touches share a token (case-insensitive) run lowest ticket number first; all other
+    # ordering keeps input order. Note: "after <ticket> (<token>)" for the nearest earlier
+    # overlapping ticket. A ticket with NO overlap relationship at all (it never blocks and
+    # is never blocked) can still get bumped ahead of its input position as a side effect of
+    # the ready-scan skipping a blocked, unrelated ticket; that case is flagged
+    # "moved up (unrelated overlap elsewhere)" so the plan table never shows a silent
+    # reorder with no explanation. All other unchanged slots print an empty note.
+    # ponytail: O(n^3) Kahn sort; fine at queue.maxTickets scale, index tokens if batches grow.
+    awk -F'\t' '
+    function num(k) { sub(/.*-/, "", k); return k + 0 }
+    function shared(a, b,    m, i, c, arr) {
+        m = split(list[a], arr, ",")
+        for (i = 1; i <= m; i++) { c = arr[i]; if (c != "" && ((b, c) in has)) return c }
+        return ""
+    }
+    {
+        n++; key[n] = $1; list[n] = ""
+        m = split(tolower($2), parts, ",")
+        for (i = 1; i <= m; i++) {
+            c = parts[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c)
+            if (c != "" && !((n, c) in has)) { has[n, c] = 1; list[n] = list[n] "," c }
+        }
+    }
+    END {
+        for (a = 1; a <= n; a++)
+            for (b = 1; b <= n; b++)
+                if (a != b && shared(a, b) != "") { related[a] = 1; related[b] = 1 }
+        for (out = 1; out <= n; out++) {
+            for (i = 1; i <= n; i++) {
+                if (done[i]) continue
+                ready = 1
+                for (j = 1; j <= n; j++)
+                    if (!done[j] && j != i && num(key[j]) < num(key[i]) && shared(i, j) != "") { ready = 0; break }
+                if (ready) break
+            }
+            done[i] = 1; seq[out] = i; note = ""
+            for (k = out - 1; k >= 1; k--) { c = shared(i, seq[k]); if (c != "") { note = "after " key[seq[k]] " (" c ")"; break } }
+            if (note == "" && !related[i] && out != i) note = "moved up (unrelated overlap elsewhere)"
+            printf "%s\t%s\n", key[i], note
+        }
+    }'
 }
 
 n1_queue_release_rows() {
