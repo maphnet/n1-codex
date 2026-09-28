@@ -5,6 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1"; echo "--- expected"; echo "$2"; echo "--- actual"; echo "$3"; FAIL=$((FAIL+1)); fi; }
 source "$REPO_ROOT/lib/memory.sh"
+source "$REPO_ROOT/lib/frontmatter.sh"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 M="$T/memory"; mkdir -p "$M"
 
@@ -93,5 +94,11 @@ MARKER="$T/pwned"
 assert_eq "shell-metacharacter title archives (unrelated words) without executing" "$M/NP-306-old" \
     "$(n1_memory_reuse_check "$M/NP-306" 'archive tickt memory bu $(touch '"$MARKER"') `touch '"$MARKER"'` "quoted"')"
 assert_eq "no side-effect file created" "no" "$([ -e "$MARKER" ] && echo yes || echo no)"
+
+# 13. CR-2: n1_write_frontmatter tolerates a CRLF overview (delimiters have \r) and the
+# written key round-trips through n1_read_frontmatter (which already strips \r).
+printf -- '---\r\nstep: implementation\r\n---\r\n\r\n# CRLF title\r\n' > "$T/crlf.md"
+n1_write_frontmatter "$T/crlf.md" step done >/dev/null
+assert_eq "CRLF write_frontmatter updates key" "done" "$(n1_read_frontmatter "$T/crlf.md" step)"
 
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
