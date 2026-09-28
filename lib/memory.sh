@@ -327,6 +327,7 @@ n1_archive_stale_branch() {
     git show-ref --verify --quiet "refs/heads/$branch" || return 0
 
     if ! git branch -m "$branch" "${branch}${suffix}" 2>/dev/null; then
+        [ -n "$wt_path" ] && git worktree move "${wt_path}${suffix}" "$wt_path" 2>/dev/null
         echo "n1_archive_stale_branch: failed to rename branch $branch to ${branch}${suffix}" >&2
         return 1
     fi
