@@ -98,6 +98,67 @@ test_runbook_never_executes() {
     assert_eq "runbook-unmerged: no verify section" "0" "$(grep -c 'Verify command' "$out" || true)"
 }
 
+# --- NP-240: multi-step delivery helpers ---------------------------------------
+test_multi_step_helpers() {
+    local cf="$TMP/step.cmd" out
+    echo '{"delivery":{"mode":"ssh","command":"true"}}' > "$TEST_CONFIG"
+    assert_eq "multi-step: command only -> false" "false" "$(n1_delivery_is_multi_step)"
+    echo '{"delivery":{"mode":"ssh","steps":["`true`"]}}' > "$TEST_CONFIG"
+    assert_eq "multi-step: steps only -> true" "true" "$(n1_delivery_is_multi_step)"
+    echo '{"delivery":{"mode":"ssh","command":"true","steps":["`true`"]}}' > "$TEST_CONFIG"
+    assert_eq "multi-step: command wins over steps" "false" "$(n1_delivery_is_multi_step)"
+    echo '{"delivery":{"mode":"ssh","steps":[]}}' > "$TEST_CONFIG"
+    assert_eq "multi-step: empty steps -> true (execute reports it empty)" "true" "$(n1_delivery_is_multi_step)"
+    echo '{"delivery":{"mode":"ssh","steps":"`true`"}}' > "$TEST_CONFIG"
+    assert_eq "multi-step: steps not an array -> false" "false" "$(n1_delivery_is_multi_step)"
+    echo '{}' > "$TEST_CONFIG"
+    assert_eq "multi-step: no delivery -> false" "false" "$(n1_delivery_is_multi_step)"
+
+    printf '{"delivery":{"mode":"ssh","steps":["`touch %s/RAN`","Manual: chown on host","`a` and `b`","plain text",""]}}\n' "$TMP" > "$TEST_CONFIG"
+    out=$(n1_delivery_step 0 "$cf")
+    assert_eq "step 0: shell" "shell" "$(printf '%s\n' "$out" | sed -n 1p)"
+    assert_eq "step 0: item text on line 2" "\`touch $TMP/RAN\`" "$(printf '%s\n' "$out" | sed -n 2p)"
+    assert_eq "step 0: command file holds the exact command" "touch $TMP/RAN" "$(cat "$cf")"
+    assert_eq "step 0: never executed" "no" "$([ -e "$TMP/RAN" ] && echo yes || echo no)"
+    out=$(n1_delivery_step 1 "$cf")
+    assert_eq "step 1: Manual: prefix -> manual" "manual" "$(printf '%s\n' "$out" | sed -n 1p)"
+    assert_eq "step 1: manual text on line 2" "Manual: chown on host" "$(printf '%s\n' "$out" | sed -n 2p)"
+    assert_eq "step 1: manual leaves no command file" "no" "$([ -e "$cf" ] && echo yes || echo no)"
+    assert_eq "step 2: four backticks -> manual" "manual" "$(n1_delivery_step 2 "$cf" | sed -n 1p)"
+    assert_eq "step 3: no backticks -> manual" "manual" "$(n1_delivery_step 3 "$cf" | sed -n 1p)"
+    assert_eq "step 4: empty item -> manual, not end" "manual" "$(n1_delivery_step 4 "$cf" | sed -n 1p)"
+    assert_eq "step 5: past the end -> end" "end" "$(n1_delivery_step 5 "$cf")"
+    assert_eq "step: non-numeric index -> end" "end" "$(n1_delivery_step 'x;true' "$cf")"
+    assert_eq "step: command config -> end" "end" \
+        "$(echo '{"delivery":{"mode":"ssh","command":"true"}}' > "$TEST_CONFIG"; n1_delivery_step 0 "$cf")"
+}
+
+test_runbook_steps() {
+    export N1_HOME="$TMP/home"
+    local ov="$TMP/home/memory/T-11/overview.md" out
+    printf '{"delivery":{"mode":"ssh","steps":["`touch %s/FIRST`","Manual: approve restart","`touch %s/THIRD`"],"verifyCommand":"touch %s/VERIFY3"}}\n' \
+        "$TMP" "$TMP" "$TMP" > "$TEST_CONFIG"
+    out=$(N1_QUEUE_RUN_ID=R1 n1_delivery_runbook T-11 abc123)
+    assert_eq "runbook-steps: no step or verify executed" "no" \
+        "$([ -e "$TMP/FIRST" ] || [ -e "$TMP/THIRD" ] || [ -e "$TMP/VERIFY3" ] && echo yes || echo no)"
+    assert_eq "runbook-steps: shell step listed" "yes" "$(grep -qF "1. \`touch $TMP/FIRST\`" "$out" && echo yes || echo no)"
+    assert_eq "runbook-steps: manual step listed" "yes" "$(grep -qF '2. Manual: approve restart' "$out" && echo yes || echo no)"
+    assert_eq "runbook-steps: verify listed" "yes" "$(grep -qF "touch $TMP/VERIFY3" "$out" && echo yes || echo no)"
+    assert_eq "runbook-steps: no empty deploy command block" "0" "$(grep -c 'Deploy command' "$out" || true)"
+    assert_eq "runbook-steps: deploy_pending set" "true" "$(n1_read_frontmatter "$ov" deploy_pending)"
+    assert_eq "runbook-steps: next step recorded" "0" "$(n1_read_frontmatter "$ov" deploy_next_step)"
+    # Abort at step 2 (index 1): only the remaining steps are listed, resume point recorded.
+    out=$(n1_delivery_runbook T-11 abc123 1)
+    assert_eq "runbook-steps: done step dropped" "0" "$(grep -cF "$TMP/FIRST" "$out" || true)"
+    assert_eq "runbook-steps: remaining steps kept" "yes" "$(grep -qF "3. \`touch $TMP/THIRD\`" "$out" && echo yes || echo no)"
+    assert_eq "runbook-steps: resume index recorded" "1" "$(n1_read_frontmatter "$ov" deploy_next_step)"
+    out=$(n1_delivery_runbook T-11 abc123 'x;y')
+    assert_eq "runbook-steps: bad first-step falls back to 0" "0" "$(n1_read_frontmatter "$ov" deploy_next_step)"
+    # Single-command runbooks never gain the key (AC3).
+    assert_eq "runbook: single-command has no deploy_next_step" "" \
+        "$(n1_read_frontmatter "$TMP/home/memory/T-9/overview.md" deploy_next_step)"
+}
+
 # --- Non-regression: merge/finish gates ignore the delivery block -------------
 gate() {
     echo "$1" > "$TEST_CONFIG"
@@ -161,6 +222,12 @@ test_wiring() {
     assert_eq "init: warns there is no ssh deny hook" "yes" "$(grep -qF 'no deny hook' "$init" && echo yes || echo no)"
     assert_eq "init: warns delivery commands must not contain secrets" "yes" \
         "$(grep -qF 'must not contain secrets' "$init" && echo yes || echo no)"
+    assert_eq "init: offers multi-step delivery" "yes" "$(grep -qF '"steps": [' "$init" && echo yes || echo no)"
+    assert_eq "init: empty command offers steps instead of a plain skip" "yes" \
+        "$(grep -qF 'No single deploy command?' "$init" && echo yes || echo no)"
+    assert_eq "init: step grammar explained" "yes" "$(grep -qF 'saved as a manual step' "$init" && echo yes || echo no)"
+    assert_eq "init: reconfiguration shows steps" "yes" "$(grep -qF 'steps         →' "$init" && echo yes || echo no)"
+    assert_eq "init: never writes both shapes" "yes" "$(grep -qF 'Never write both' "$init" && echo yes || echo no)"
     # SEC-1/SEC-2: failure/pending tracker comments never carry command text or raw output.
     assert_eq "wiring: deploy-failed comment has no command interpolation" "0" \
         "$(section "$step" '## Execute branch' | grep -c '<command>' || true)"
@@ -185,10 +252,48 @@ test_wiring() {
     assert_eq "non-regression: n1-start finish gate has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-start/steps/finish.md" || true)"
 }
 
+# --- NP-240: multi-step wiring ---------------------------------------------------
+test_wiring_multi_step() {
+    local step="$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md" ms
+    ms=$(section "$step" '## Multi-step execute')
+    assert_eq "multi-step wiring: execute branch forks on the shape" "yes" \
+        "$(section "$step" '## Execute branch' | grep -qF 'n1_delivery_is_multi_step' && echo yes || echo no)"
+    assert_eq "multi-step wiring: section exists" "yes" "$([ -n "$ms" ] && echo yes || echo no)"
+    assert_eq "multi-step wiring: classifies with the helper" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'n1_delivery_step <K>' && echo yes || echo no)"
+    assert_eq "multi-step wiring: runs the extracted file, never re-typed text" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'bash "$CMDF"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: shows the command with cat" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'cat "$N1_HOME/memory/<ID>/deploy-step.cmd"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: per-step unconditional gate" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'ask the user for every step' && echo yes || echo no)"
+    assert_eq "multi-step wiring: runs in the merge-SHA checkout" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'git worktree add -q --detach "$DEPLOY_DIR" "<SHA>"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: checkout is removed" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: abort writes a remaining-steps runbook" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'n1_delivery_runbook "<ID>" "<SHA>" <K>' && echo yes || echo no)"
+    assert_eq "multi-step wiring: resume reads deploy_next_step" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'deploy_next_step' && echo yes || echo no)"
+    assert_eq "multi-step wiring: verify runs once" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'bash -c "$VERIFY_CMD"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: failure comment keeps output local" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'kept locally in N1 memory' && echo yes || echo no)"
+    assert_eq "multi-step wiring: no command interpolation in comments" "0" \
+        "$(printf '%s' "$ms" | grep -c '<command>' || true)"
+    assert_eq "multi-step wiring: runbook branch forbids steps too" "yes" \
+        "$(section "$step" '## Runbook branch' | grep -qF 'delivery.steps' && echo yes || echo no)"
+    assert_eq "multi-step wiring: SKILL.md documents delivery.steps" "yes" \
+        "$(grep -qF '.delivery.steps' "$REPO_ROOT/skills/n1-finish/SKILL.md" && echo yes || echo no)"
+}
+
 test_wiring
+test_wiring_multi_step
 test_action
 test_action_no_jq
 test_runbook_never_executes
+test_multi_step_helpers
+test_runbook_steps
 test_gates_unchanged
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
