@@ -14,7 +14,7 @@ n1_break_check_is_test_path() {
     esac
     local b; b=$(basename "$p")
     case "$b" in
-        test_*.py|*_test.py|*.test.*|*.spec.*|*_test.go|*Test.java|*Tests.cs|*_spec.rb) return 0 ;;
+        test_*.py|*_test.py|*.test.*|*.spec.*|*_test.go|*Test.java|*Tests.cs|*_spec.rb|test_*.sh|*_test.sh) return 0 ;;
     esac
     return 1
 }
@@ -125,7 +125,15 @@ n1_break_check() {
         rm -f "$revert_log"; return 0
     fi
     rm -f "$revert_log"
-    if printf '%s\n' "$failed_names" | grep -qxF -- "$name"; then
+    if n1_break_check_is_test_path "$name"; then
+        # File-level runner: the parsed failure names are per-check descriptions,
+        # not the file-level name itself, so any parsed failure counts as red.
+        if [ -n "$failed_names" ]; then
+            _n1_bc_json true "" "" red-then-green "$name" "$log"
+        else
+            _n1_bc_json true "" "" never-red "$name" "$log"
+        fi
+    elif printf '%s\n' "$failed_names" | grep -qxF -- "$name"; then
         _n1_bc_json true "" "" red-then-green "$name" "$log"
     else
         _n1_bc_json true "" "" never-red "$name" "$log"
