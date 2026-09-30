@@ -169,7 +169,8 @@ test_release_cmd() {
 test_child_status() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
 
-    printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/pr.md"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\nawaiting: merge\npr_url: https://x/pr/1\n' > "$tmp/pr.md"
+    printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/pr-nourl.md"
     printf -- '---\nstep: ci\n---\n# T\n' > "$tmp/ci.md"
     printf -- '---\nstep: done\n---\n# T\n' > "$tmp/done.md"
     printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/esc.md"
@@ -178,6 +179,10 @@ test_child_status() {
     printf -- '---\nstep: done\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n\npr_url: https://example.com/pr/1\n' > "$tmp/asked-done.md"
 
     assert_eq "qstatus: step pr -> pr" "pr" "$(n1_queue_child_status "$tmp/pr.md" 0)"
+    # N1-53: step pr is written when the PR step begins; only a recorded pr_url makes it terminal.
+    assert_eq "qstatus: step pr without url, exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/pr-nourl.md" 0)"
+    assert_eq "qstatus: step pr without url, exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/pr-nourl.md" 1)"
+    assert_eq "qstatus strict: step pr without url -> running" "running" "$(n1_queue_child_status "$tmp/pr-nourl.md" 0 1)"
     assert_eq "qstatus: step ci -> pr" "pr" "$(n1_queue_child_status "$tmp/ci.md" 0)"
     assert_eq "qstatus: step done -> pr" "pr" "$(n1_queue_child_status "$tmp/done.md" 0)"
     assert_eq "qstatus: step escalated" "escalated" "$(n1_queue_child_status "$tmp/esc.md" 0)"
@@ -1286,14 +1291,26 @@ FIXTUREEOF
         "$(echo "$out" | awk -F'\t' '$1=="TP-6"{print $6}')"
 }
 
+# N1-53: a bg child that ends at step pr with no PR URL is a failure, never a phantom pr.
+test_bg_pr_without_url() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgn "T-A:working done"
+    printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/fake/overview.T-A"
+    assert_eq "bg-nourl: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-nourl: first row deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-nourl: no pr rows" "0" "$(n1_queue_pending_rows "$tmp/queue.md" pr | wc -l | tr -d ' ')"
+    assert_eq "bg-nourl: retry failed" "failed" "$(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+}
+
 # --- NP-219: pending deploy -----------------------------------------------------
 test_child_status_deploy() {
     local tmp; tmp=$(mktemp -d)
     printf -- '---\nstep: pr\ndeploy_pending: true\n---\n' > "$tmp/ov.md"
     assert_eq "child-status: deploy pending" "awaiting-deploy" "$(n1_queue_child_status "$tmp/ov.md" 0)"
-    printf -- '---\nstep: pr\ndeploy_pending: false\n---\n' > "$tmp/ov.md"
+    printf -- '---\nstep: pr\ndeploy_pending: false\n---\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ov.md"
     assert_eq "child-status: deploy done -> pr" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
-    printf -- '---\nstep: pr\n---\n' > "$tmp/ov.md"
+    printf -- '---\nstep: pr\n---\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ov.md"
     assert_eq "child-status: no delivery -> pr (unchanged)" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
     printf -- '---\nstep: escalated\n---\n' > "$tmp/ov.md"
     assert_eq "child-status: no delivery -> escalated (unchanged)" "escalated" "$(n1_queue_child_status "$tmp/ov.md" 1)"
@@ -1727,6 +1744,7 @@ test_pick_model
 test_plan_wiring
 test_child_status
 test_child_status_deploy
+test_bg_pr_without_url
 test_row_status
 test_write_plan_cells
 test_pending_rows

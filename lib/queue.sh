@@ -129,7 +129,7 @@ _n1_word_overlap() {
 
 n1_queue_child_status() {
     # Usage: n1_queue_child_status <overview.md> <exit-code> [strict]
-    # Prints: pr | escalated | failed | running | awaiting-deploy (NP-219)
+    # Prints: pr | escalated | failed | running | awaiting-deploy (NP-219) — pr needs pr_url at step pr (N1-53)
     # strict=1 (NP-216 live-poll callers): only step:escalated counts as escalated.
     # ## Escalations is an append-only log (lib/memory.sh) that also gets an entry
     # in ask-mode while the child continues past the question — its mere presence
@@ -143,8 +143,14 @@ n1_queue_child_status() {
     local step; step=$(n1_read_frontmatter "$overview" "step")
     # NP-219: merged/PR'd delivery ticket whose deploy was left for an interactive n1-finish.
     if [ "$(n1_read_frontmatter "$overview" deploy_pending)" = "true" ]; then printf 'awaiting-deploy'; return; fi
-    # pr/ci/done all mean stop-at-CI success
-    case "$step" in pr|ci|done) printf 'pr'; return ;; esac
+    # ci/done mean stop-at-CI success. skills/n1-pr/steps/02-push-create.md Step 6 sets
+    # frontmatter step:pr and records pr_url in the same instruction, but as two separate,
+    # non-atomic writes (N1-53): a live/bg-poll read of overview.md landing between them sees
+    # step:pr with no pr_url yet. Terminal only once pr_url is actually recorded.
+    case "$step" in
+        ci|done) printf 'pr'; return ;;
+        pr) if [ -n "$(n1_queue_child_pr_url "$overview")" ]; then printf 'pr'; return; fi ;;
+    esac
     if [ "$step" = "escalated" ] || { [ "$strict" != "1" ] && [ -n "$(n1_queue_escalation_text "$overview")" ]; }; then
         printf 'escalated'; return
     fi
