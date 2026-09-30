@@ -566,6 +566,66 @@ n1_queue_session_id() {
         END { print id }' "$1"
 }
 
+n1_queue_answer() {
+    # Usage: n1_queue_answer <n1-home> <ticket>
+    # N1-55: relays a main-thread answer to a queue child blocked on a question it mirrored to
+    # <queue-dir>/.question-<ticket>.json: stop its session, then bg-resume it with
+    # "[n1-queue answer] <answer>". The answer is read from <n1-home>/queue/.answer-<ticket>.txt (never
+    # shell-interpolated; path derived only after the ticket id is validated, SEC-4) and
+    # capped at 4000 chars. Resume requires the FULL sessionId and passes no other flags (spike
+    # evidence, N1-55: --resume with --permission-mode/--settings/--model forks a new session id
+    # instead of continuing the same one; a flag-less full-id resume restores the child's saved
+    # launch options automatically). <queue-dir>/.relay-<ticket> tells the runner the stopped gap
+    # is a relay (n1_queue_relay_active); it expires on its own, since the agents list can lag the
+    # resume. A retry after a failed resume skips the stop (session already stopped).
+    # The answer file is read then deleted first, on every path (never reused for another call);
+    # on success the question file is removed.
+    local home="$1" t="$2" af qf dir row sid agents st full ans run i
+    case "$t" in ''|*[!A-Za-z0-9_-]*) echo "n1-queue: invalid ticket id" >&2; return 1 ;; esac
+    af="$home/queue/.answer-$t.txt"
+    ans=$(cat "$af" 2>/dev/null); rm -f "$af"
+    qf=$(ls -t "$home"/queue/*/.question-"$t".json 2>/dev/null | head -1)
+    [ -n "$qf" ] || { echo "n1-queue: no pending question for $t" >&2; return 1; }
+    dir="${qf%/*}"
+    row=$(n1_queue_pending_rows "$dir/queue.md" 'awaiting-human' | awk -F'\t' -v t="$t" '$2 == t')
+    sid=$(n1_queue_session_id "$dir/queue.md" "$t")
+    { [ -n "$row" ] && [ -n "$sid" ]; } || { echo "n1-queue: $t is not waiting in a queue session" >&2; return 1; }
+    agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)
+    st=$(n1_queue_bg_state "$agents" "$sid")
+    case "$st" in blocked|failed) ;; *) echo "n1-queue: session $sid is $st, not waiting for an answer" >&2; return 1 ;; esac
+    full=$(printf '%s' "$agents" | jq -r --arg sid "$sid" \
+        '[.. | objects | select(has("state")) | select(.id == $sid or ((.sessionId // "") | startswith($sid)))][0].sessionId // empty' 2>/dev/null)
+    [ -n "$full" ] || { echo "n1-queue: could not resolve the full session id for $sid; retry, or: $(n1_bg_cmd attach "$sid")" >&2; return 1; }
+    [ -n "$ans" ] || { echo "n1-queue: empty answer" >&2; return 1; }
+    [ "${#ans}" -le 4000 ] || ans="${ans:0:4000}... [truncated]"
+    : > "$dir/.relay-$t"
+    if [ "$st" = blocked ]; then
+        if ! bash -c "$(n1_bg_cmd stop "$sid")"; then
+            rm -f "$dir/.relay-$t"; echo "n1-queue: could not stop session $sid" >&2; return 1
+        fi
+        for i in 1 2 3 4 5; do  # bounded wait for the stop to land; resume is attempted regardless
+            case "$(n1_queue_bg_state "$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)" "$sid")" in
+                working|blocked) sleep 2 ;; *) break ;; esac
+        done
+    fi
+    if ! bash -c "$(n1_bg_cmd resume "$full" "[n1-queue answer] $ans")"; then
+        # The session is stopped by now (this call or an earlier one): attach no longer reaches it.
+        echo "n1-queue: resume failed for $t; retry --answer within 2 minutes, or: $(n1_bg_cmd reopen "$full")" >&2
+        return 1
+    fi
+    rm -f "$qf"
+    run=$(n1_read_frontmatter "$dir/queue.md" run_id)
+    n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$dir/queue.md" queue_id)" "$run" answer_delivered \
+        ticket="$t" session="$sid" reason="${ans:0:120}"
+    echo "n1-queue: answer delivered to $t (session $sid), resuming."
+}
+
+n1_queue_relay_active() {
+    # Usage: n1_queue_relay_active <queue-dir> <ticket> — exit 0 while n1_queue_answer's relay
+    # marker is under 2 minutes old (N1-55); older markers are ignored.
+    [ -n "$(find "$1/.relay-$2" -mmin -2 2>/dev/null)" ]
+}
+
 n1_queue_awaiting_hints() {
     # Usage: n1_queue_awaiting_hints <queue.md>
     # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach
@@ -634,9 +694,10 @@ n1_queue_digest() {
 
 n1_queue_watch() {
     # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
-    # Session-side relay for one queue run. Every queue.pollSeconds, prints one line per new
-    # escalated / ticket_finished / halted / queue_done event in <queue_dir>/events.jsonl whose
-    # run_id is <run_id> (never queue id alone: a relaunch appends to the same file).
+    # Session-side relay for one queue run. Every queue.pollSeconds, prints new escalated (full
+    # mirrored question when present) / answer_delivered / ticket_finished / halted / queue_done
+    # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
+    # relaunch appends to the same file).
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
     # identical command after a host timeout resumes with no gap and no replay. Without that
     # cursor it starts at line <from_line> (default: current end of file).
@@ -644,7 +705,7 @@ n1_queue_watch() {
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason
+    local ev t out pr s reason qbody
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -665,8 +726,25 @@ n1_queue_watch() {
             while IFS=$'\x1f' read -r ev t out pr s reason; do
                 case "$ev" in
                     escalated)
-                        printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
-                            "${s:+ (resume: $(n1_bg_cmd attach "$s"))}" ;;
+                        # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
+                        qbody=""
+                        case "$t" in ''|*[!A-Za-z0-9_-]*) ;; *) [ -f "$dir/.question-$t.json" ] && \
+                            qbody=$(jq -r 'def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:1000];
+                                (.rationale // "" | s) as $r | (.recommended // "" | s) as $rec
+                                | "  Q: \(.question | s)",
+                                  (select($rec == "" and $r != "") | "  \($r)"),
+                                  (.options | arrays | .[:10] | .[] | "  - \(s)"),
+                                  (select($rec != "") | "  Recommended: \($rec)\(if $r != "" then " — \($r)" else "" end)")' \
+                                "$dir/.question-$t.json" 2>/dev/null) ;; esac
+                        if [ -n "$qbody" ]; then
+                            printf 'n1-queue %s: %s needs you (answer: /n1:n1-queue --answer %s "<text>"%s):\n%s\n' \
+                                "$q" "$t" "$t" "${s:+; resume: $(n1_bg_cmd attach "$s")}" "$qbody"
+                        else
+                            printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
+                                "${s:+ (resume: $(n1_bg_cmd attach "$s"))}"
+                        fi ;;
+                    answer_delivered)
+                        printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t" ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
                     halted|queue_done)
@@ -676,9 +754,9 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
-                | map(tostring | gsub("[\u0000-\u001f\u007f]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
+                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
             seen="$total"
         fi
         if [ "$alive" = 0 ]; then
