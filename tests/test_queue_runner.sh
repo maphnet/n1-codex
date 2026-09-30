@@ -1389,6 +1389,75 @@ test_bg_held_blocker_failed() {
     rm -rf "$tmp"
 }
 
+# N1-64: merge-to-unblock trigger (conditions 1-3) and strict gate (condition 4), gh stubbed.
+test_merge_candidates() {
+    # n1_queue_unblock takes the queue dir, so the plan lives at $tmp/queue.md.
+    local tmp; tmp=$(mktemp -d)
+    mk_held_plan "$tmp/queue.md" pr
+    assert_eq "merge-cand: stalled on T-1" "T-1" "$(n1_queue_merge_candidates "$tmp/queue.md")"
+    mk_held_plan "$tmp/queue.md" in-progress
+    assert_eq "merge-cand: blocker not pr" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
+    mk_held_plan "$tmp/queue.md" pr
+    sed -i 's/^| 3 | T-3 | C | \/r | \/h | sonnet | held | blocked_on T-2 |$/| 3 | T-3 | C | \/r | \/h | sonnet | pending | |/' "$tmp/queue.md"
+    assert_eq "merge-cand: other work can progress" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
+    mk_held_plan "$tmp/queue.md" pr
+    sed -i 's/ held | blocked_on T-1 · tag match / held | blocked_on T-9 /' "$tmp/queue.md"
+    assert_eq "merge-cand: nobody held on T-1" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
+    mk_held_plan "$tmp/queue.md" pr
+    n1_queue_unblock "$tmp" T-1 "https://github.com/o/r/pull/5"
+    assert_eq "unblock: T-2 released" "pending|released: T-1 merged" "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "unblock: T-3 still held" "held" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "unblock: event" "merged_to_unblock,T-1,https://github.com/o/r/pull/5" \
+        "$(jq -r '[.event,.ticket,.pr] | join(",")' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+test_merge_gate() {
+    local tmp ov; tmp=$(mktemp -d)
+    mkdir -p "$tmp/h/memory/T-1" "$tmp/qd"; ov="$tmp/h/memory/T-1/overview.md"
+    # review_fix_cycle absent/0 means review passed clean on the first try (fix.md, which
+    # increments clean_passes, is never entered in that case) — clean_passes alone cannot
+    # tell "never needed a fix" from "still failing" — review_fix_cycle disambiguates.
+    good_ov() { printf -- '---\nstep: ci\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"; }
+    good_ov_after_fix() { printf -- '---\nstep: ci\nreview_fix_cycle: 1\nclean_passes: 1\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"; }
+    GH_OK='{"mergeable":"MERGEABLE","state":"OPEN","statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"},{"state":"SUCCESS"}]}'
+    gh() { [ -z "${GH_FAIL:-}" ] || return 1; printf '%s' "$GH_JSON"; }
+    gate() { n1_queue_merge_gate "$tmp/h" T-1 "$tmp/qd" || true; }
+    good_ov; GH_JSON="$GH_OK"
+    assert_eq "gate: all conditions hold, first-try-clean review" "https://github.com/o/r/pull/5" "$(gate)"
+    good_ov_after_fix; GH_JSON="$GH_OK"
+    assert_eq "gate: all conditions hold, review converged after a fix cycle" "https://github.com/o/r/pull/5" "$(gate)"
+    printf -- '---\nstep: pr\n---\n' > "$ov"
+    assert_eq "gate: no PR url" "gate: no real PR URL" "$(gate)"
+    good_ov_after_fix; sed -i 's/clean_passes: 1/clean_passes: 0/' "$ov"
+    assert_eq "gate: fix cycle ran but never converged" "gate: review not PASS" "$(gate)"
+    good_ov; sed -i 's/step: ci/step: escalated/' "$ov"
+    assert_eq "gate: escalated step" "gate: open escalation" "$(gate)"
+    good_ov; echo '{}' > "$tmp/qd/.question-T-1.json"
+    assert_eq "gate: pending question" "gate: open escalation" "$(gate)"
+    rm -f "$tmp/qd/.question-T-1.json"
+    GH_JSON='{"mergeable":"CONFLICTING","state":"OPEN","statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+    assert_eq "gate: not mergeable" "gate: not mergeable" "$(gate)"
+    GH_JSON='{"mergeable":"MERGEABLE","state":"OPEN","statusCheckRollup":[{"conclusion":"FAILURE"}]}'
+    assert_eq "gate: CI failed" "gate: CI not green" "$(gate)"
+    GH_JSON='{"mergeable":"MERGEABLE","state":"OPEN","statusCheckRollup":[{"conclusion":"","status":"IN_PROGRESS"}]}'
+    assert_eq "gate: CI pending" "gate: CI not green" "$(gate)"
+    GH_JSON='{"mergeable":"MERGEABLE","state":"OPEN","statusCheckRollup":[]}'
+    assert_eq "gate: no CI checks" "gate: CI not green" "$(gate)"
+    GH_JSON="$GH_OK"; GH_FAIL=1
+    assert_eq "gate: gh error" "gate: gh pr view failed" "$(gate)"
+    unset GH_FAIL
+    assert_eq "gate: bad ticket" "gate: invalid ticket" "$(n1_queue_merge_gate "$tmp/h" 'T-1;x' "$tmp/qd" || true)"
+    # N1-64 edge case: blocker's PR was already merged outside the orchestrator (a human ran
+    # `gh` directly, or a previous tick's merge landed but this tick's unblock was interrupted).
+    # A merged PR reports mergeable=UNKNOWN and a stale/empty rollup in the live API — state:MERGED
+    # is what actually matters, and the gate must not strand held tickets behind it forever.
+    good_ov; GH_JSON='{"mergeable":"UNKNOWN","state":"MERGED","statusCheckRollup":[]}'
+    assert_eq "gate: already merged externally -> still passes" "https://github.com/o/r/pull/5" "$(gate)"
+    unset -f gh good_ov good_ov_after_fix gate
+    rm -rf "$tmp"
+}
+
 # --- NP-219: pending deploy -----------------------------------------------------
 test_child_status_deploy() {
     local tmp; tmp=$(mktemp -d)
@@ -1835,6 +1904,8 @@ test_auto_resolve
 test_held_helpers
 test_bg_held_not_launched
 test_bg_held_blocker_failed
+test_merge_candidates
+test_merge_gate
 test_row_status
 test_write_plan_cells
 test_pending_rows

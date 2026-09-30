@@ -309,6 +309,69 @@ n1_queue_held_expire() {
     done < <(n1_queue_pending_rows "$q" held)
 }
 
+n1_queue_merge_candidates() {
+    # Usage: n1_queue_merge_candidates <queue.md>
+    # N1-64 merge-to-unblock trigger, conditions 1-3: prints each ticket whose Plan Status is pr
+    # (a real PR, N1-53) that at least one held row waits on, but only while no row is pending
+    # or in-progress (the run cannot progress without it). Parked rows wait on the human and
+    # do not count as progress.
+    local q="$1" num t b
+    [ -z "$(n1_queue_pending_rows "$q" 'pending|in-progress')" ] || return 0
+    while IFS=$'\t' read -r num t _ _ _ _; do
+        b=$(n1_queue_blocker_of "$q" "$num")
+        [ -n "$b" ] && [ "$(n1_queue_ticket_status "$q" "$b")" = pr ] && printf '%s\n' "$b"
+    done < <(n1_queue_pending_rows "$q" held) | sort -u
+}
+
+n1_queue_merge_gate() {
+    # Usage: n1_queue_merge_gate <n1-home> <ticket> <queue-dir>
+    # N1-64 strict gate (condition 4) before the orchestrating session merges a blocking child PR:
+    # real GitHub PR URL, review PASS, no open escalation (step escalated or a pending .question
+    # file), GitHub mergeable, and every CI check green (no checks = not green).
+    # Review PASS: review_fix_cycle absent/0 means review passed clean on the first try — fix.md,
+    # which increments clean_passes, is only ever entered on a FAIL (skills/n1-start/steps/fix.md).
+    # clean_passes alone can't distinguish "never needed a fix" from "still failing", so a fix
+    # cycle is only required to have converged (clean_passes >= 1) when one was actually entered.
+    # Prints the PR URL (exit 0) or "gate: <reason>" (exit 1). Any gh error means not met, EXCEPT
+    # an already-merged PR (state MERGED): a human or an interrupted earlier tick can merge a
+    # blocker outside this gate, and a merged PR's own mergeable/CI fields are stale or UNKNOWN —
+    # checked first so that case doesn't strand held tickets behind a PR that is already in.
+    local home="$1" t="$2" dir="$3" ov url rfc cp js
+    case "$t" in ''|*[!A-Za-z0-9_-]*) echo "gate: invalid ticket"; return 1 ;; esac
+    ov="$home/memory/$t/overview.md"
+    url=$(n1_queue_child_pr_url "$ov")
+    [[ "$url" =~ ^https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+$ ]] || { echo "gate: no real PR URL"; return 1; }
+    rfc=$(n1_read_frontmatter "$ov" review_fix_cycle); [[ "$rfc" =~ ^[0-9]+$ ]] || rfc=0
+    cp=$(n1_read_frontmatter "$ov" clean_passes); [[ "$cp" =~ ^[0-9]+$ ]] || cp=0
+    [ "$rfc" -eq 0 ] || [ "$cp" -ge 1 ] || { echo "gate: review not PASS"; return 1; }
+    if [ "$(n1_read_frontmatter "$ov" step)" = escalated ] || [ -e "$dir/.question-$t.json" ]; then
+        echo "gate: open escalation"; return 1
+    fi
+    js=$(gh pr view "$url" --json mergeable,statusCheckRollup,state 2>/dev/null) || { echo "gate: gh pr view failed"; return 1; }
+    if [ "$(printf '%s' "$js" | jq -r '.state // ""' 2>/dev/null)" = MERGED ]; then printf '%s' "$url"; return 0; fi
+    [ "$(printf '%s' "$js" | jq -r '.mergeable // ""' 2>/dev/null)" = MERGEABLE ] || { echo "gate: not mergeable"; return 1; }
+    printf '%s' "$js" | jq -e '(.statusCheckRollup // []) as $c | ($c | length) > 0
+        and ($c | all((.conclusion // .state // "") as $s | $s == "SUCCESS" or $s == "NEUTRAL" or $s == "SKIPPED"))' >/dev/null 2>&1 \
+        || { echo "gate: CI not green"; return 1; }
+    printf '%s' "$url"
+}
+
+n1_queue_unblock() {
+    # Usage: n1_queue_unblock <queue-dir> <blocker> <pr-url>
+    # N1-64: after the orchestrating session merged <blocker>'s PR, release every held row waiting
+    # on it (the runner launches it next tick) and log merged_to_unblock for the audit trail.
+    # ponytail: queue.md is rewritten by both runner and session (mktemp+mv); the runner is idle-
+    # sleeping at this point, add a lock file if a lost update is ever observed.
+    local dir="$1" b="$2" url="$3" q="$1/queue.md" num t
+    while IFS=$'\t' read -r num t _ _ _ _; do
+        if [ "$(n1_queue_blocker_of "$q" "$num")" = "$b" ]; then
+            n1_queue_row_status "$q" "$num" pending "released: $b merged"
+        fi
+    done < <(n1_queue_pending_rows "$q" held)
+    n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$q" queue_id)" "$(n1_read_frontmatter "$q" run_id)" \
+        merged_to_unblock ticket="$b" pr="$url"
+}
+
 n1_queue_already_run() {
     # Usage: n1_queue_already_run <overview.md>
     # Exit 0 and print the stamped queue_run_id when a previous queue run handled this
