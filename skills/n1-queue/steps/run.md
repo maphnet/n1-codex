@@ -215,10 +215,10 @@ No output, or only `WAIT` lines: do nothing. Never merge on a partial gate — `
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
-M=$(N1_HOME="$H" n1_config_val '.finishWork.mergeMethod'); case "$M" in merge|rebase) ;; *) M=squash ;; esac
+M=$(N1_HOME="<H>" n1_config_val '.finishWork.mergeMethod'); case "$M" in merge|rebase) ;; *) M=squash ;; esac
 gh pr merge "<URL>" --"$M" --match-head-commit "<SHA>"; RC=$?
 if [ "$(gh pr view "<URL>" --json state -q .state 2>/dev/null)" = MERGED ]; then
-    if N1_HOME="$H" n1_queue_sync_default "<R>"; then
+    if N1_HOME="<H>" n1_queue_sync_default "<R>"; then
         n1_queue_unblock "<QUEUE_DIR>" "<B>" "<URL>"
     else
         echo "n1-queue: <B> merged but syncing <R>'s local default branch failed; leaving held tickets waiting" >&2
@@ -230,7 +230,7 @@ else
 fi
 ```
 
-Unblock only once the PR's state is `MERGED`: with a GitHub merge queue the merge command exits 0 but only enqueues, so do nothing further this tick (the next watch cycle re-evaluates). If the merge command itself fails, the state re-check still matters: someone (a human, or an interrupted earlier tick) may have already merged it outside this gate, in which case still proceed — do not strand held tickets behind a PR that is already in. Only a genuine merge failure (conflicts, permissions, closed-not-merged) does nothing further; print GitHub's error. `--match-head-commit` (SEC-2) rejects the merge outright if a commit landed on `<B>`'s branch after the gate checked it. On a confirmed merge, `n1_queue_sync_default` (CR-1) fast-forwards `<R>`'s local default branch before any row is released — held tickets branch from that local default, so releasing them against a stale one would hand them a branch-point missing the commit just merged; a sync failure leaves the held rows waiting and is surfaced to the user, never silently unblocked. Only after a successful sync, invoke skill `n1-finish <B>` from `<R>` with `N1_HOME=<H>` (CR-2: that project's own workspace and config, not this session's — `.finishWork.mergeMethod` above already came from `<H>`): it sees the merged PR, moves the ticket to Done and cleans up. This is the only merge the queue performs outside `queue.mergeOnFinish`. It happens only in this session, which has no PreToolUse merge gate (children keep hook Case 3). Release is never part of it.
+Unblock only once the PR's state is `MERGED`: with a GitHub merge queue the merge command exits 0 but only enqueues, so do nothing further this tick (the next watch cycle re-evaluates). If the merge command itself fails, the state re-check still matters: someone (a human, or an interrupted earlier tick) may have already merged it outside this gate, in which case still proceed — do not strand held tickets behind a PR that is already in. Only a genuine merge failure (conflicts, permissions, closed-not-merged) does nothing further; print GitHub's error. `--match-head-commit` (SEC-2) rejects the merge outright if a commit landed on `<B>`'s branch after the gate checked it. On a confirmed merge, `n1_queue_sync_default` (CR-1) fast-forwards `<R>`'s local default branch before any row is released — held tickets branch from that local default, so releasing them against a stale one would hand them a branch-point missing the commit just merged; a sync failure leaves the held rows waiting and is surfaced to the user, never silently unblocked. Only after a successful sync, run the n1-finish skill for `<B>`, with its bash snippets prefixed `cd "<R>" && export N1_HOME="<H>" &&` (CR-2: that project's own workspace and config, not this session's — `.finishWork.mergeMethod` above already came from `<H>`): it sees the merged PR, moves the ticket to Done and cleans up. This is the only merge the queue performs outside `queue.mergeOnFinish`. It happens only in this session, which has no PreToolUse merge gate (children keep hook Case 3). Release is never part of it.
 
 Print "Queue <QUEUE_ID> started (<N> tickets, pid <PID>). Each ticket stops after PR + CI. <MERGE_MODE from the preview>." then: "This session relays tickets that need you, ticket results, a halt, and the finish while it stays open. Out-of-session alerts: `queue.notify` = <notify>. Check: <queue watch hint>."
 
