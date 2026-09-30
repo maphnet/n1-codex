@@ -24,7 +24,7 @@ QE=$(n1_autonomy_val 'qualityEscalations')
 
 Applies whenever the environment variable `N1_HEADLESS` equals `1` (the run was launched by `n1-queue` or another non-interactive parent). There is no user to answer prompts directly.
 
-When `N1_UNATTENDED` also equals `ask` (set for Claude Code queue children), an escalation pauses and asks the user instead of ending the run — see the ask-mode branch below. Any other headless run (Codex / `-p` children, or `N1_HEADLESS=1` with `N1_UNATTENDED` unset) keeps the escalate-and-exit path unchanged.
+When `N1_UNATTENDED` also equals `ask` (set for Claude Code queue children), an escalation pauses and asks the user instead of ending the run — see the ask-mode branch below. Any other headless run (`-p` children, or `N1_HEADLESS=1` with `N1_UNATTENDED` unset) keeps the escalate-and-exit path unchanged.
 
 At any point where a step would ask the user or otherwise **wait for the user**, classify the prompt against the **stop list** before escalating.
 
@@ -129,7 +129,7 @@ Then continue the run — do not escalate, do not end.
    Include the `Queue tag removed` line only when the release outcome is `removed`; omit it otherwise.
 5. Branch on `N1_UNATTENDED`:
 
-   **Not `ask`** (Codex / `-p` children, or `N1_HEADLESS=1` alone) — escalate-and-exit, unchanged:
+   **Not `ask`** (`-p` children, or `N1_HEADLESS=1` alone) — escalate-and-exit, unchanged:
    a. Set frontmatter `step: escalated`:
       ```bash
       source ~/.n1/preamble.sh

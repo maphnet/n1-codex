@@ -43,7 +43,7 @@ QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdic
 IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
 IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
 ```
-`QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers; no Astra context.
+`QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers.
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewer personas return their results before combining findings.
 

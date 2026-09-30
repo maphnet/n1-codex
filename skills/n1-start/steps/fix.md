@@ -6,11 +6,7 @@ n1_step_begin "fix" 10
 n1_verify_dependencies "$N1_HOME/memory/$ID" review.md || { echo "ERROR: review.md missing — cannot fix without findings" >&2; exit 1; }
 REVIEW_FIX_CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 [[ "$REVIEW_FIX_CYCLE" =~ ^[0-9]+$ ]] || REVIEW_FIX_CYCLE=0
-FIX_ASTRA_CONTEXT=""
-# failed-fix-escalation is legal only when review_fix_cycle >= 2; the counter is
-# incremented after each completed failed-review repair, so this is attempt three.
-if [ "$REVIEW_FIX_CYCLE" -ge 2 ]; then FIX_ASTRA_CONTEXT=failed-fix-escalation; fi
-IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer fix "$FIX_ASTRA_CONTEXT")
+IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer fix)
 QE=$(n1_autonomy_val 'qualityEscalations')
 ```
 

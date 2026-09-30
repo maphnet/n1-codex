@@ -20,7 +20,7 @@ n1_record_decision plan-review-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && 
 
 **Spawn agent:** solution-architect (fresh context — CCR)
 
-Resolve via `n1_resolve_agent solution-architect plan-review`, split tab-separated model/effort pair, pass both. No Astra context. Spawn with codebase access (Read, Grep, Glob); instruct: "Read these files before reviewing: ticket.md, analysis.md, brainstorm.md, plan.md (the plan — fix issues in-place). NOT generative — this is a review."
+Resolve via `n1_resolve_agent solution-architect plan-review`, split tab-separated model/effort pair, pass both. Spawn with codebase access (Read, Grep, Glob); instruct: "Read these files before reviewing: ticket.md, analysis.md, brainstorm.md, plan.md (the plan — fix issues in-place). NOT generative — this is a review."
 
 Review categories (find issues, fix in-place):
 1. **Assumption validation** — Do referenced files, functions, APIs exist? Use Grep/Read.

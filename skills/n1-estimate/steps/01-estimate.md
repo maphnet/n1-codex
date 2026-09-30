@@ -31,8 +31,7 @@ source ~/.n1/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 
-Split the tab-separated result and pass both values to the host spawn. This estimation
-workflow does not supply an Astra context.
+Split the tab-separated result and pass both values to the host spawn.
 
 ## Memory
 

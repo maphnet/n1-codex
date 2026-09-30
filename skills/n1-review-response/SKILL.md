@@ -31,8 +31,8 @@ source ~/.n1/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 
-Split the tab-separated model/effort result and pass both values to the host spawn. This
-workflow does not authorize an Astra context; `n1_resolve_model` is compatibility-only.
+Split the tab-separated model/effort result and pass both values to the host spawn.
+`n1_resolve_model` is compatibility-only.
 
 ## Steps
 
