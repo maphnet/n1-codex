@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 FAIL=0
 
 # 1. No Superpowers in any manifest
-for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin.json .agents/plugins/marketplace.json; do
+for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
     if grep -qi 'superpowers' "$f" 2>/dev/null; then
         echo "FAIL: $f still references superpowers"; FAIL=1
     fi

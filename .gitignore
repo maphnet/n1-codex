@@ -9,5 +9,3 @@ __pycache__/
 *.pyo
 .claude/
 
-# Codex host: generated persona TOMLs and worktrees
-.codex/
