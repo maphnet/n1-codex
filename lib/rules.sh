@@ -23,7 +23,7 @@ n1_rule_field() {
         in_fm && $0 ~ "^" key ":" {
             sub("^" key ":[[:space:]]*", "")
             gsub(/\r/, "")
-            gsub(/[\[\]"]/, "")
+            gsub(/[\[\]"'"'"']/, "")
             gsub(/,[[:space:]]+/, ",")
             gsub(/^[[:space:]]+|[[:space:]]+$/, "")
             printf "%s", $0
@@ -363,20 +363,33 @@ n1_escalation_critical() {
     # unreadable/uncategorized question (fail safe); any category but "none" (a stop-list
     # category such as security/architecture/public-api, or the release gate); hard-block words
     # in the text; a project rule's `escalation_critical:` substring. Rules can only add.
-    local q="$1" rules_dir="${2:-$(n1_rules_dir)}" cat text rf pat
+    local q="$1" rules_dir="${2:-$(n1_rules_dir)}" cat text rf pat raw
     cat=$(jq -r '.category // ""' "$q" 2>/dev/null) || { echo "critical: unreadable question"; return 0; }
     [ -n "$cat" ] || { echo "critical: no category"; return 0; }
     [ "$cat" = none ] || { echo "critical: $cat"; return 0; }
-    text=$(jq -r '[.question, .rationale, (.options // [] | .[])] | map(tostring) | join(" ")' "$q" 2>/dev/null) \
+    # SEC-7: recommended/step are part of the trust boundary too — a child can misclassify a
+    # security/public-API decision under category "none" but still surface the real keyword there.
+    text=$(jq -r '[.question, .rationale, .recommended, .step, (.options // [] | .[])] | map(tostring) | join(" ")' "$q" 2>/dev/null) \
         || { echo "critical: unreadable question"; return 0; }
     # ponytail: keyword match over-flags (e.g. "release notes"); fail-safe direction, tighten if relays get noisy.
-    if printf '%s' "$text" | grep -qiE 'security|architecture|public[ -]api|release'; then
+    if printf '%s' "$text" | grep -qiE 'security|architecture|public[ _-]?api|release'; then
         echo "critical: hard-block keyword"; return 0
     fi
     while IFS= read -r rf; do
         [ -z "$rf" ] && continue
+        raw=$(n1_rule_field "$rf" escalation_critical)
+        if [ -z "$raw" ]; then
+            # SEC-4: escalation_critical: present but empty (malformed/misauthored) fails safe —
+            # a rule author clearly meant to add a critical case here; silently ignoring it would
+            # be a fail-open. Absent key (not this rule's concern) is not an error.
+            if awk 'NR==1 && /^---$/{f=1;next} f && /^---$/{exit} f && /^escalation_critical:/{found=1} END{exit !found}' "$rf"; then
+                echo "n1-rules: $(basename "$rf" .rule.md) has an empty escalation_critical: value; treating as critical (fail-safe)" >&2
+                echo "critical: rule $(basename "$rf" .rule.md) (empty escalation_critical)"; return 0
+            fi
+            continue
+        fi
         local -a pats=()
-        IFS=',' read -ra pats <<< "$(n1_rule_field "$rf" escalation_critical)"
+        IFS=',' read -ra pats <<< "$raw"
         for pat in "${pats[@]+"${pats[@]}"}"; do
             pat="${pat#"${pat%%[![:space:]]*}"}"; pat="${pat%"${pat##*[![:space:]]}"}"
             [ -n "$pat" ] || continue

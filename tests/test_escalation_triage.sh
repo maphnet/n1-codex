@@ -30,6 +30,11 @@ n1_escalation_critical "$T/plain.json" "$T/norules" >/dev/null && rc=0 || rc=$?
 assert_eq "non-critical exit code" "1" "$rc"
 q "$T/kw.json" none "Should the public API return 404 here?"
 assert_eq "hard-block keyword in text (misclassified child)" "critical: hard-block keyword" "$(cls "$T/kw.json" "$T/norules")"
+# N1-64 SEC-7: the keyword backstop also scans recommended/step, and public-api with no separator.
+jq -n '{ticket:"T-1",step:"plan",category:"none",question:"Import via A or B?",options:["A","B"],recommended:"B: touches the publicapi surface",rationale:""}' > "$T/rec.json"
+assert_eq "hard-block keyword in recommended field" "critical: hard-block keyword" "$(cls "$T/rec.json" "$T/norules")"
+jq -n '{ticket:"T-1",step:"architecture",category:"none",question:"Import via A or B?",options:["A","B"],recommended:"",rationale:""}' > "$T/step.json"
+assert_eq "hard-block keyword in step field" "critical: hard-block keyword" "$(cls "$T/step.json" "$T/norules")"
 
 printf -- '---\ndescription: Fleet safety\ntopic: escalation\napplies_to: queue\nenforcement: gate\nescalation_critical: gateway restart, auth.json\n---\nGateway restarts and auth files always need a human.\n' > "$T/rules/fleet.rule.md"
 q "$T/gw.json" none "Is a Gateway Restart acceptable after the import?"
@@ -37,6 +42,15 @@ assert_eq "rule predicate adds critical (case-insensitive)" "critical: rule flee
 assert_eq "rule not matching stays non-critical" "non-critical" "$(cls "$T/plain.json" "$T/rules")"
 printf -- '---\ndescription: Try to relax\ntopic: escalation\napplies_to: queue\nenforcement: gate\nescalation_critical:\n---\nx\n' > "$T/rules/empty.rule.md"
 assert_eq "rules cannot remove a hard block" "critical: security" "$(cls "$T/sec.json" "$T/rules")"
+# N1-64 SEC-4: an escalation_critical: key present but parsing empty fails safe to critical
+# (empty.rule.md sorts before fleet.rule.md, so it is hit first regardless of pattern match).
+assert_eq "empty escalation_critical value fails safe to critical" \
+    "critical: rule empty (empty escalation_critical)" "$(cls "$T/plain.json" "$T/rules")"
+
+mkdir -p "$T/rulesq"
+printf -- "---\ndescription: Fleet safety quoted\ntopic: escalation\napplies_to: queue\nenforcement: gate\nescalation_critical: 'gateway restart, auth.json'\n---\nx\n" > "$T/rulesq/fleetq.rule.md"
+assert_eq "N1-64 SEC-4: single-quoted escalation_critical value parses" \
+    "critical: rule fleetq" "$(cls "$T/gw.json" "$T/rulesq")"
 
 assert_eq "missing question file -> critical" "critical: unreadable question" "$(cls "$T/none.json" "$T/norules")"
 printf 'not json' > "$T/bad.json"
