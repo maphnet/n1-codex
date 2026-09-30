@@ -41,5 +41,5 @@ Execute steps in order. Read each step file and follow its instructions before p
 2. **Push & Create** — push and create PR, update tracker, update memory, report, post-PR follow-ups
    Read `<N1_ROOT>/skills/n1-pr/steps/02-push-create.md`
 
-3. **Cross-Host Review** -- optional Codex review of the PR (Claude Code only, skips silently when unavailable)
-   Read `<N1_ROOT>/skills/n1-pr/steps/03-cross-host-review.md`
+3. **Codex Review** -- Codex review of the PR (skips silently when unavailable)
+   Read `<N1_ROOT>/skills/n1-pr/steps/03-codex-review.md`
