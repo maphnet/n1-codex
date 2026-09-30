@@ -464,51 +464,6 @@ class CountToolCallsTest(unittest.TestCase):
         self.assertIsNone(cache["metrics"]["api_calls_per_run"])
 
 
-def codex_tool_record(ts, name, tool_type="function_call"):
-    return {"timestamp": ts, "type": "response_item", "payload": {"type": tool_type, "name": name}}
-
-
-class CountToolCallsCodexTest(unittest.TestCase):
-    def setUp(self):
-        self.d = TempDirs()
-
-    def write(self, records):
-        p = self.d.tmp / "rollout.jsonl"
-        write_jsonl(p, records)
-        return p
-
-    def test_counts_shell_and_total(self):
-        p = self.write([
-            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
-            codex_tool_record("2026-09-01T10:01:01Z", "read_file"),
-            codex_tool_record("2026-09-01T10:01:02Z", "shell"),
-            codex_tool_record("2026-09-01T10:01:03Z", "memory_search", tool_type="custom_tool_call"),
-        ])
-        bash, api = bm.count_tool_calls_codex(p)
-        self.assertEqual(bash, 2)
-        self.assertEqual(api, 4)
-
-    def test_non_response_item_records_ignored(self):
-        p = self.write([
-            {"type": "session_meta", "payload": {"cwd": "/foo"}},
-            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
-        ])
-        bash, api = bm.count_tool_calls_codex(p)
-        self.assertEqual(bash, 1)
-        self.assertEqual(api, 1)
-
-    def test_compute_run_metrics_dispatches_to_codex_counter(self):
-        p = self.write([
-            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
-            codex_tool_record("2026-09-01T10:01:01Z", "read_file"),
-        ])
-        run = {**make_run(), "host": "codex"}
-        cache = {"run_record": run, "turns": [], "transcript_path": str(p)}
-        bm.compute_run_metrics(cache)
-        self.assertEqual(cache["metrics"]["bash_calls_per_run"], 1.0)
-        self.assertEqual(cache["metrics"]["api_calls_per_run"], 2.0)
-
-
 class ApplyLabelsTest(unittest.TestCase):
     def test_applies_valid_labels_and_falls_back(self):
         cache = {"turns": [

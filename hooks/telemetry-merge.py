@@ -14,14 +14,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Import telemetry_codex for Codex usage extraction and schema version
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-import telemetry_codex
+SCHEMA_VERSION = 5
 
 STATIC_MAP = {
     "product-analyst": ["ticket"],
@@ -33,10 +30,9 @@ STATIC_MAP = {
 
 
 def persona_of(agent_type: str) -> str:
-    """Strip the host namespace: n1:<p> (Claude Code) or n1-<p> (Codex)."""
-    for prefix in ("n1:", "n1-"):
-        if agent_type.startswith(prefix):
-            return agent_type[len(prefix):]
+    """Strip the n1: namespace from an agent_type."""
+    if agent_type.startswith("n1:"):
+        return agent_type[len("n1:"):]
     return agent_type
 
 
@@ -320,9 +316,7 @@ def main() -> int:
             "parse_error": None,
             "usage_status": "unknown",
         }
-        if host == "codex":
-            pass  # Codex: session-total usage injected into summary; per-agent unknown
-        elif a.get("transcript_path"):
+        if a.get("transcript_path"):
             # Retro-fix for events recorded before the agent-stop hook learned to
             # resolve per-agent transcripts: prefer the subagent's own file when present.
             tpath = a["transcript_path"]
@@ -355,22 +349,6 @@ def main() -> int:
             session_transcript = ev["session_transcript_path"]
             break
     if session_transcript is None:
-        # A session-start hook is not required to locate a trusted Codex thread.
-        # Exact ID only: cwd/time-based matching can attribute a concurrent run.
-        thread_id = envelope.get('session_id')
-        if host == 'codex' and thread_id:
-            db = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'state_5.sqlite'
-            try:
-                conn = sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True)
-                try:
-                    row = conn.execute('SELECT rollout_path FROM threads WHERE id = ?', (thread_id,)).fetchone()
-                    if row:
-                        session_transcript = row[0]
-                finally:
-                    conn.close()
-            except sqlite3.Error:
-                pass
-    if session_transcript is None:
         for a in agents_raw:
             tpath = a.get("transcript_path") or ""
             marker = "/subagents/"
@@ -384,13 +362,6 @@ def main() -> int:
     orchestrator = None
     if session_transcript and host == 'claude-code':
         orchestrator = parse_orchestrator_transcript(session_transcript, steps)
-
-    # --- Codex usage extraction (session-total strategy) ---
-    codex_usage = None
-    codex_linkage = None
-    if host == "codex" and session_transcript:
-        codex_usage = telemetry_codex.extract_usage_tree(session_transcript)
-        codex_linkage = telemetry_codex.extract_linkage(session_transcript)
 
     def _sum(vals):
         return sum(v for v in vals if v is not None)
@@ -425,24 +396,20 @@ def main() -> int:
     }
 
     # Determine usage scope and status
-    if codex_usage:
-        usage_scope = codex_usage["usage_scope"]
-        usage_status = codex_usage["usage_status"]
-    else:
-        any_parsed = any(a.get("input_tokens") is not None for a in agents)
-        usage_scope = "per-agent"
-        usage_status = "complete" if any_parsed else "unknown"
+    any_parsed = any(a.get("input_tokens") is not None for a in agents)
+    usage_scope = "per-agent"
+    usage_status = "complete" if any_parsed else "unknown"
 
     record = {
-        "schema_version": telemetry_codex.SCHEMA_VERSION,
+        "schema_version": SCHEMA_VERSION,
         "run_id": args.run_id,
         "session_id": envelope.get("session_id"),
         "session_transcript_path": session_transcript,
         "n1_version": envelope.get('n1_version') or args.n1_version,
         "project": args.project,
         "host": host,
-        "cli_version": codex_usage["cli_version"] if codex_usage else None,
-        "parser_schema_version": telemetry_codex.SCHEMA_VERSION,
+        "cli_version": None,
+        "parser_schema_version": SCHEMA_VERSION,
         "usage_status": usage_status,
         "usage_scope": usage_scope,
         "ticket_id": envelope.get("ticket_id"),
@@ -460,26 +427,8 @@ def main() -> int:
         "summary": summary,
     }
 
-    # For Codex runs, inject session-total usage into summary.
-    if codex_usage and codex_usage["input_tokens"] is not None:
-        record["summary"]["total_input_tokens"] = codex_usage["input_tokens"]
-        record["summary"]["total_output_tokens"] = codex_usage["output_tokens"]
-        record["summary"]["total_cache_read_tokens"] = codex_usage["cached_input_tokens"]
-        record["summary"]["total_reasoning_tokens"] = codex_usage["reasoning_tokens"]
-        record["summary"]["total_cache_creation_tokens"] = codex_usage.get("cache_creation_tokens")
-        record["summary"]["total_tokens"] = codex_usage.get("total_tokens")
-        record["summary"]["codex_model"] = codex_usage["model"]
-    elif codex_usage:
-        # Codex run but usage unavailable — null, not zero
-        record["summary"]["total_input_tokens"] = None
-        record["summary"]["total_output_tokens"] = None
-        record["summary"]["total_cache_read_tokens"] = None
-        record["summary"]["total_cache_creation_tokens"] = None
-        record["summary"]["total_reasoning_tokens"] = None
-        record["summary"]["total_tokens"] = None
-
-    # Comparable totals: input includes fresh, cached-read and cached-write
-    # input on both hosts. Reasoning is already included in output.
+    # Comparable totals: input includes fresh, cached-read and cached-write input.
+    # Reasoning is already included in output.
     if host == 'claude-code':
         components = [orch_totals, *agents]
         fields = ('input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens')
@@ -492,29 +441,22 @@ def main() -> int:
         record['usage_scope'] = 'session-tree' if orch_totals else 'per-agent'
         record['usage_status'] = 'complete' if all(summary['total_' + f] is not None for f in fields) else (
             'partial' if orch_totals or any(a.get('input_tokens') is not None for a in agents) else 'unknown')
-    elif host != 'codex' or not codex_usage:
+    else:
         for field in ('input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens', 'reasoning_tokens'):
             summary['total_' + field] = None
         record['usage_status'] = 'unknown'
-    if host != 'codex' or not codex_usage:
-        values = [summary['total_input_tokens'], summary['total_output_tokens']]
-        summary['total_tokens'] = sum(values) if all(v is not None for v in values) else None
+    values = [summary['total_input_tokens'], summary['total_output_tokens']]
+    summary['total_tokens'] = sum(values) if all(v is not None for v in values) else None
     total_in = summary['total_input_tokens']
     total_cache = summary['total_cache_read_tokens']
     summary['cache_efficiency'] = round(total_cache / total_in, 2) if total_in and total_cache is not None else None
-    record['usage_coverage'] = {k: codex_usage.get(k) for k in (
-        'session_count', 'missing_session_count', 'discovery_status', 'headless_coverage')} if codex_usage else {
-            'headless_coverage': 'unknown', 'discovery_status': 'hook-recorded'}
-    record['root_usage'] = codex_usage.get('root_usage') if codex_usage else orch_totals
+    record['usage_coverage'] = {'headless_coverage': 'unknown', 'discovery_status': 'hook-recorded'}
+    record['root_usage'] = orch_totals
 
-    # Inject linkage fields
-    if codex_linkage:
-        record["session_linkage"] = codex_linkage
-    else:
-        record["session_linkage"] = {
-            "session_id": envelope.get("session_id"),
-            "parent_id": None, "fork_of": None, "reused_from": None,
-        }
+    record["session_linkage"] = {
+        "session_id": envelope.get("session_id"),
+        "parent_id": None, "fork_of": None, "reused_from": None,
+    }
 
     output = out_dir / f"{args.run_id}.jsonl"
     temporary = out_dir / f".{args.run_id}.{os.getpid()}.tmp"

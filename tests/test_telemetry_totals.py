@@ -48,7 +48,7 @@ class RunTotalsTest(unittest.TestCase):
             row = merge()
             self.assertEqual(row['usage_status'], 'partial')
             self.assertIsNone(row['summary']['total_input_tokens'])
-            opening.update(host='codex', session_transcript_path=None)
+            opening.update(host='unknown', session_transcript_path=None)
             (base/'raw/steps/run.jsonl').write_text(json.dumps(opening)+'\n')
             row = merge()
             self.assertIsNone(row['summary']['total_input_tokens'])

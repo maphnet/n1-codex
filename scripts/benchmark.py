@@ -6,20 +6,19 @@ plus telemetry-derived quality metrics. Persists per-run caches, snapshots,
 and reports under an output directory (default ~/.n1/benchmark/).
 
 Usage:
-  python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--force] [--ambiguous-out FILE] [--host claude-code|codex] [--sessions-dir DIR]
+  python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--force] [--ambiguous-out FILE]
   python3 scripts/benchmark.py finalize --labels FILE [--out DIR] [--by version|week] [--plugin-version V] [--judge-model M]
   python3 scripts/benchmark.py report   [--out DIR] [--snapshot ID] [--by version|week]
   python3 scripts/benchmark.py baseline set <version> | show [--out DIR]
 
 The script never calls a model. Ambiguous turns are printed by `collect`;
 the n1-benchmark skill labels them and passes the labels file to `finalize`.
-Read-only with respect to ~/.n1/<project>/, ~/.claude/projects/, and ~/.codex/sessions/.
+Read-only with respect to ~/.n1/<project>/ and ~/.claude/projects/.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
-import importlib.util
 import json
 import os
 import random
@@ -86,22 +85,6 @@ def count_tool_calls(path: Path):
                 api_calls += 1
                 if item.get("name") == "Bash":
                     bash_calls += 1
-    return bash_calls, api_calls
-
-
-def count_tool_calls_codex(path: Path):
-    """Read a Codex rollout transcript JSONL and count tool_call events.
-
-    Returns (bash_calls, api_calls):
-      bash_calls — tool_call events whose tool name is "shell"
-      api_calls  — all tool_call events
-    """
-    bash_calls, api_calls = 0, 0
-    for ev in transcript_codex.iter_events(Path(path)):
-        if ev["kind"] == "tool_call":
-            api_calls += 1
-            if ev.get("tool") == "shell":
-                bash_calls += 1
     return bash_calls, api_calls
 
 
@@ -232,13 +215,8 @@ def link_transcript(run: dict, projects_dir: Path):
         return None, "unlinked"
 
     best, best_count = None, 0
-    if HOST == "codex":
-        slug = (run.get("project") or "").lower()
-        candidates = [p for p in transcript_codex.session_files(projects_dir)
-                      if (transcript_codex.session_cwd(p) or "").lower().rstrip("/").endswith("/" + slug)]
-    else:
-        candidates = [p for d in candidate_project_dirs(projects_dir, run.get("project") or "", run.get("branch"))
-                      for p in sorted(d.glob("*.jsonl"))]
+    candidates = [p for d in candidate_project_dirs(projects_dir, run.get("project") or "", run.get("branch"))
+                  for p in sorted(d.glob("*.jsonl"))]
     for path in candidates:
         in_window = sum(1 for ts in human_turn_timestamps(path) if start <= ts <= end)
         if in_window == 0 or not _transcript_mentions(path, ticket):
@@ -270,15 +248,8 @@ def _assistant_text_and_ask(rec: dict):
     return "\n".join(texts), asked
 
 
-_TC_SPEC = importlib.util.spec_from_file_location("transcript_codex", Path(__file__).resolve().parent.parent / "lib" / "transcript_codex.py")
-transcript_codex = importlib.util.module_from_spec(_TC_SPEC)
-_TC_SPEC.loader.exec_module(transcript_codex)
-
-HOST = "claude-code"  # set by cmd_collect from --host
-
-
 def iter_events_claude(path):
-    """Normalized events from a Claude Code transcript (same shape as transcript_codex.iter_events)."""
+    """Normalized events from a Claude Code transcript."""
     for rec, _ in read_jsonl(Path(path)):
         if not rec:
             continue
@@ -293,7 +264,7 @@ def iter_events_claude(path):
 
 
 def iter_events(path):
-    return transcript_codex.iter_events(path) if HOST == "codex" else iter_events_claude(path)
+    return iter_events_claude(path)
 
 
 def extract_turns(transcript_path: str, run: dict):
@@ -434,8 +405,6 @@ def _strip_private(cache: dict) -> dict:
 
 
 def cmd_collect(args) -> int:
-    global HOST
-    HOST = args.host
     out = Path(args.out)
     runs, malformed = load_runs(Path(args.n1_root))
     since = parse_ts(f"{args.since}T00:00:00Z") if args.since else None
@@ -446,7 +415,7 @@ def cmd_collect(args) -> int:
     for run in runs:
         cache = existing.get(run["run_id"])
         if cache is None:
-            cache = build_run_cache(run, Path(args.sessions_dir if HOST == "codex" else args.projects_dir))
+            cache = build_run_cache(run, Path(args.projects_dir))
             cache["run_record"] = {k: v for k, v in run.items() if not k.startswith("_")}
             save_cache(out, _strip_private(cache))
             new += 1
@@ -695,11 +664,7 @@ def compute_run_metrics(cache: dict) -> None:
     # Pre-compute tool call counts so BashCallsMetric / ApiCallsMetric can read them.
     transcript_path = cache.get("transcript_path")
     if transcript_path and Path(transcript_path).is_file():
-        host = run_record.get("host") or "unknown"
-        if host == "codex":
-            bash_c, api_c = count_tool_calls_codex(Path(transcript_path))
-        else:
-            bash_c, api_c = count_tool_calls(Path(transcript_path))
+        bash_c, api_c = count_tool_calls(Path(transcript_path))
         run_record["_bash_calls"] = bash_c
         run_record["_api_calls"] = api_c
     # Orchestrator metrics from merged run record
@@ -1190,8 +1155,6 @@ def build_parser():
     c.add_argument("--since", default=None, help="YYYY-MM-DD; ignore runs started earlier")
     c.add_argument("--force", action="store_true", help="re-process cached runs")
     c.add_argument("--ambiguous-out", default=None, help="write ambiguous turns JSON here instead of stdout")
-    c.add_argument("--host", choices=["claude-code", "codex"], default=os.environ.get("N1_HOST") or "claude-code")
-    c.add_argument("--sessions-dir", default=os.path.expanduser("~/.codex/sessions"), help="Codex rollout root (codex host)")
 
     f = sub.add_parser("finalize")
     common(f)
