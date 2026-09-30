@@ -160,9 +160,9 @@ test_release_cmd() {
     local out
     out=$(N1_QUEUE_RELEASE_STUB=/tmp/release-stub.sh n1_queue_release_cmd n1-auto /r /tmp/log)
     assert_eq "release_cmd: stub hook" '"/tmp/release-stub.sh" "n1-auto"' "$out"
-    out=$(unset N1_QUEUE_RELEASE_STUB; N1_HOST=codex n1_queue_release_cmd n1-auto /r /tmp/log)
-    assert_eq "release_cmd: codex real command shape" "yes" \
-        "$(case "$out" in *"codex exec"*'--status'*'n1-auto'*) echo yes ;; *) echo "no: $out" ;; esac)"
+    out=$(unset N1_QUEUE_RELEASE_STUB; n1_queue_release_cmd n1-auto /r /tmp/log)
+    assert_eq "release_cmd: claude real command shape" "yes" \
+        "$(case "$out" in *'claude -p '*n1-queue*--status*n1-auto*) echo yes ;; *) echo "no: $out" ;; esac)"
 }
 
 # --- n1_queue_child_status ---------------------------------------------------
@@ -322,27 +322,18 @@ test_bg_helpers() {
     assert_eq "bgstate: empty sid -> failed" "failed" "$(n1_queue_bg_state "$j" "")"
     assert_eq "bgstate: non-hex sid -> failed" "failed" "$(n1_queue_bg_state "$j" zzzzzzzz)"
 
-    local cc cx
-    cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    local cc
+    cc=$(unset N1_STORY_PLUGIN_DIR; n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
     assert_eq "child_cmd: claude-code bg launch" "yes" "$(case "$cc" in "cd /r && claude --bg --name n1-q-T-1-1 --model sonnet --permission-mode bypassPermissions --settings "*bgIsolation*"/n1:n1-start\ T-1"*) echo yes ;; *) echo "no: $cc" ;; esac)"
     assert_eq "child_cmd: claude-code has N1_UNATTENDED=ask" "yes" \
         "$(case "$cc" in *'N1_UNATTENDED'*'ask'*) echo yes ;; *) echo no ;; esac)"
-    cx=$(unset N1_QUEUE_CHILD_STUB; N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
-    assert_eq "child_cmd: codex unchanged" "yes" "$(case "$cx" in *'N1_QUEUE_RUN_ID="RUN1"'*"codex exec"*) case "$cx" in *--bg*) echo no ;; *) echo yes ;; esac ;; *) echo "no: $cx" ;; esac)"
-    assert_eq "child_cmd: codex has no N1_UNATTENDED" "no" "$(case "$cx" in *N1_UNATTENDED*) echo yes ;; *) echo no ;; esac)"
 
-    cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_QUEUE_TAG=n1-auto N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    cc=$(unset N1_STORY_PLUGIN_DIR; N1_QUEUE_TAG=n1-auto n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
     assert_eq "child_cmd: claude-code forwards N1_QUEUE_TAG" "yes" \
         "$(case "$cc" in *'N1_QUEUE_TAG'*'n1-auto'*) echo yes ;; *) echo "no: $cc" ;; esac)"
-    cx=$(unset N1_QUEUE_CHILD_STUB; N1_QUEUE_TAG=n1-auto N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
-    assert_eq "child_cmd: codex forwards N1_QUEUE_TAG" "yes" \
-        "$(case "$cx" in *'N1_QUEUE_TAG=n1-auto '*"codex exec"*) echo yes ;; *) echo "no: $cx" ;; esac)"
-    cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_QUEUE_DIR=/q/dir N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    cc=$(unset N1_STORY_PLUGIN_DIR; N1_QUEUE_DIR=/q/dir n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
     assert_eq "child_cmd: claude-code forwards N1_QUEUE_DIR" "yes" \
         "$(case "$cc" in *'N1_QUEUE_DIR'*'/q/dir'*) echo yes ;; *) echo "no: $cc" ;; esac)"
-    cx=$(unset N1_QUEUE_CHILD_STUB; N1_QUEUE_DIR=/q/dir N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
-    assert_eq "child_cmd: codex forwards N1_QUEUE_DIR" "yes" \
-        "$(case "$cx" in *'N1_QUEUE_DIR=/q/dir '*"codex exec"*) echo yes ;; *) echo "no: $cx" ;; esac)"
 
     cat > "$tmp/q.md" <<'EOF'
 ---
@@ -452,59 +443,9 @@ test_runner_three_strikes() {
     local tmp; tmp=$(mktemp -d)
     # trap 'rm -rf "$tmp"' RETURN  # keep for debugging on failure
 
-    # Stub script: T-A -> pr, T-B -> escalated, T-C -> exit 124 (timeout, no overview)
-    cat > "$tmp/stub.sh" <<'STUBEOF'
-#!/usr/bin/env bash
-TICKET="$1"
-case "$TICKET" in
-    T-A)
-        mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
-        printf -- '---\nstep: pr\n---\n# T\n\n## Pending\nawaiting: merge\npr_url: https://x/pr/99\n' > "$N1_QUEUE_OVERVIEW"
-        exit 0 ;;
-    T-B)
-        mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
-        printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$N1_QUEUE_OVERVIEW"
-        exit 0 ;;
-    T-C) exit 124 ;;
-esac
-STUBEOF
-    chmod +x "$tmp/stub.sh"
-
-    # Wrapper that sets N1_QUEUE_OVERVIEW for the stub
-    cat > "$tmp/wrapper.sh" <<WEOF
-#!/usr/bin/env bash
-TICKET="\$1"
-export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
-exec "$tmp/stub.sh" "\$TICKET"
-WEOF
-    chmod +x "$tmp/wrapper.sh"
-
-    mkdir -p "$tmp/n1home/memory"
-    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
-
-    cat > "$tmp/queue.md" <<'EOF'
----
-step: plan
-queue_id: test-q
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-A | Fix A | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
-| 2 | T-B | Fix B | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
-| 3 | T-C | Fix C | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
-    sed -i "s|N1HOME_PLACEHOLDER|$tmp/n1home|g" "$tmp/queue.md"
-
-    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
-    export N1_HOME="$tmp/n1home"
-
-    local exit_code=0
-    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || exit_code=$?
+    mk_bg "$tmp" test-q "T-A:done" "T-B:done" "T-C:working"
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/fake/overview.T-B"
+    local exit_code; exit_code=$(run_bg_queue "$tmp")
 
     # T-A: pr, T-B: escalated (consecutive=1), T-C deferred (consecutive=2),
     # T-C retry failed (consecutive=3) -> HALTED
@@ -552,56 +493,14 @@ EOF
     assert_eq "notify-3s: halt text" "yes" \
         "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -q '^Queue test-q halted: ' && echo yes || echo no)"
 
-    unset N1_QUEUE_CHILD_STUB
     rm -rf "$tmp"
 }
 
 test_runner_all_pr() {
     local tmp; tmp=$(mktemp -d)
 
-    cat > "$tmp/stub.sh" <<'STUBEOF'
-#!/usr/bin/env bash
-TICKET="$1"
-sleep 1
-mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
-printf -- '---\nstep: pr\n---\n# T\n\n## Pending\nawaiting: merge\npr_url: https://x/pr/42\n' > "$N1_QUEUE_OVERVIEW"
-exit 0
-STUBEOF
-    chmod +x "$tmp/stub.sh"
-
-    cat > "$tmp/wrapper.sh" <<WEOF
-#!/usr/bin/env bash
-TICKET="\$1"
-export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
-exec "$tmp/stub.sh" "\$TICKET"
-WEOF
-    chmod +x "$tmp/wrapper.sh"
-
-    mkdir -p "$tmp/n1home/memory"
-    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
-
-    cat > "$tmp/queue.md" <<'EOF'
----
-step: plan
-queue_id: test-q2
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-X | Do X | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
-| 2 | T-Y | Do Y | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
-    sed -i "s|N1HOME_PLACEHOLDER|$tmp/n1home|g" "$tmp/queue.md"
-
-    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
-    export N1_HOME="$tmp/n1home"
-
-    local exit_code=0
-    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || exit_code=$?
+    mk_bg "$tmp" test-q2 "T-X:done" "T-Y:done"
+    local exit_code; exit_code=$(run_bg_queue "$tmp")
 
     assert_eq "runner-allpr: exit 0" "0" "$exit_code"
 
@@ -614,16 +513,13 @@ EOF
 
     assert_eq "events-allpr: sequence" "queue_started,ticket_started,ticket_finished,ticket_started,ticket_finished,queue_done" \
         "$(jq -r .event "$tmp/events.jsonl" | paste -sd, -)"
-    assert_eq "events-allpr: pr url" "https://x/pr/42" \
+    assert_eq "events-allpr: pr url" "https://x/pr/1" \
         "$(jq -r 'select(.event=="ticket_finished") | .pr' "$tmp/events.jsonl" | head -1)"
-    assert_eq "events-allpr: runner wall-clock duration >= 1s" "true" \
-        "$(jq -s '[.[] | select(.event=="ticket_finished") | .duration_s >= 1] | all' "$tmp/events.jsonl")"
     assert_eq "events-allpr: queue_done digest" "2 PR / 0 awaiting / 0 failed" \
         "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
     assert_eq "notify-allpr: exactly one done, no per-PR notify" "done|Queue test-q2: 2 PR / 0 awaiting / 0 failed" \
         "$(jq -r '.kind + "|" + .text' "$tmp/notes" | paste -sd, -)"
 
-    unset N1_QUEUE_CHILD_STUB
     rm -rf "$tmp"
 }
 
@@ -632,65 +528,22 @@ EOF
 test_runner_tag_release() {
     local tmp; tmp=$(mktemp -d)
 
-    cat > "$tmp/stub.sh" <<'STUBEOF'
-#!/usr/bin/env bash
-TICKET="$1"
-printf '%s\n' "${N1_QUEUE_TAG:-}" > "$N1_QUEUE_SEEN.tag.$TICKET"
-printf '%s\n' "${N1_QUEUE_DIR:-}" > "$N1_QUEUE_SEEN.dir.$TICKET"
-grep '^queue_tag_removed:' "$N1_QUEUE_OVERVIEW" > "$N1_QUEUE_SEEN.flag.$TICKET" 2>/dev/null || true
-mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
-printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/7\n' > "$N1_QUEUE_OVERVIEW"
-exit 0
-STUBEOF
-    chmod +x "$tmp/stub.sh"
-
-    cat > "$tmp/wrapper.sh" <<WEOF
-#!/usr/bin/env bash
-TICKET="\$1"
-export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
-export N1_QUEUE_SEEN="$tmp/seen"
-exec "$tmp/stub.sh" "\$TICKET"
-WEOF
-    chmod +x "$tmp/wrapper.sh"
-
+    mk_bg "$tmp" n1-auto "T-R:done"
+    sed -i 's/^queue_id: n1-auto$/&\nmode: tag/' "$tmp/queue.md"
     mkdir -p "$tmp/n1home/memory/T-R"
     printf -- '---\nstep: pr\nqueue_run_id: OLD\nqueue_tag_removed: true\n---\n' > "$tmp/n1home/memory/T-R/overview.md"
-    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
-
-    cat > "$tmp/queue.md" <<EOF
----
-step: plan
-queue_id: n1-auto
-mode: tag
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-R | Re-queued | /repo | $tmp/n1home | sonnet | pending | |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
-
-    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
-    export N1_HOME="$tmp/n1home"
-    # CCR fix: this fixture's stub leaves queue_tag_removed unset (it isn't testing
-    # release wiring), so the T-R "pr" row would otherwise trip the real automatic
-    # tag-release backstop added below. Stub it to a no-op, same as N1_QUEUE_CHILD_STUB.
     export N1_QUEUE_RELEASE_STUB=/bin/true
-    local exit_code=0
-    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || exit_code=$?
+    local exit_code; exit_code=$(run_bg_queue "$tmp")
+    unset N1_QUEUE_RELEASE_STUB
 
     assert_eq "tag-release: exit 0" "0" "$exit_code"
-    assert_eq "tag-release: child sees N1_QUEUE_TAG" "n1-auto" "$(cat "$tmp/seen.tag.T-R")"
-    assert_eq "queue-dir: child sees absolute N1_QUEUE_DIR" "$(cd "$tmp" && pwd)" "$(cat "$tmp/seen.dir.T-R")"
-    assert_eq "tag-release: flag reset before child starts" "queue_tag_removed: false" "$(cat "$tmp/seen.flag.T-R")"
+    assert_eq "tag-release: child sees N1_QUEUE_TAG" "n1-auto" "$(jq -r .env.N1_QUEUE_TAG "$tmp/fake/settings.n1-n1-auto-T-R-1")"
+    assert_eq "queue-dir: child sees absolute N1_QUEUE_DIR" "$(cd "$tmp" && pwd)" "$(jq -r .env.N1_QUEUE_DIR "$tmp/fake/settings.n1-n1-auto-T-R-1")"
+    assert_eq "tag-release: flag reset before child starts" "queue_tag_removed: false" "$(cat "$tmp/fake/flag.T-R")"
     assert_eq "tag-release: finalize stamps queue_run_id" \
         "$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
         "$(n1_read_frontmatter "$tmp/n1home/memory/T-R/overview.md" queue_run_id)"
 
-    unset N1_QUEUE_CHILD_STUB N1_QUEUE_RELEASE_STUB
     rm -rf "$tmp"
 }
 
@@ -699,50 +552,20 @@ EOF
 # human happens to check. The runner must fire the backstop itself when the run ends.
 test_runner_auto_release_backstop() {
     local tmp; tmp=$(mktemp -d)
-    cat > "$tmp/stub.sh" <<'STUBEOF'
-#!/usr/bin/env bash
-mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
-printf -- '---\nstep: implement\n---\n# T\n' > "$N1_QUEUE_OVERVIEW"
-exit 1
-STUBEOF
-    chmod +x "$tmp/stub.sh"
-    cat > "$tmp/wrapper.sh" <<WEOF
-#!/usr/bin/env bash
-TICKET="\$1"
-export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
-exec "$tmp/stub.sh" "\$TICKET"
-WEOF
-    chmod +x "$tmp/wrapper.sh"
-    mkdir -p "$tmp/n1home/memory/T-F"
-    cat > "$tmp/queue.md" <<EOF
----
-step: plan
-queue_id: n1-auto
-mode: tag
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-F | Fails | /repo | $tmp/n1home | sonnet | pending | |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
+    mk_bg "$tmp" n1-auto "T-F:failed"
+    sed -i 's/^queue_id: n1-auto$/&\nmode: tag/' "$tmp/queue.md"
     cat > "$tmp/release-seen.sh" <<WEOF2
 #!/usr/bin/env bash
 printf '%s\n' "\$1" > "$tmp/release-called"
 WEOF2
     chmod +x "$tmp/release-seen.sh"
-    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
     export N1_QUEUE_RELEASE_STUB="$tmp/release-seen.sh"
-    export N1_HOME="$tmp/n1home"
-    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" >/dev/null 2>&1 || true
+    run_bg_queue "$tmp" >/dev/null
+    unset N1_QUEUE_RELEASE_STUB
 
     assert_eq "auto-release: backstop fired for a failed tag-mode row" "n1-auto" \
         "$(cat "$tmp/release-called" 2>/dev/null || echo "not called")"
 
-    unset N1_QUEUE_CHILD_STUB N1_QUEUE_RELEASE_STUB
     rm -rf "$tmp"
 }
 
@@ -751,103 +574,32 @@ WEOF2
 # tickets never get released either.
 test_runner_release_backstop_on_halt() {
     local tmp; tmp=$(mktemp -d)
-    cat > "$tmp/stub.sh" <<'STUBEOF'
-#!/usr/bin/env bash
-mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
-printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$N1_QUEUE_OVERVIEW"
-exit 0
-STUBEOF
-    chmod +x "$tmp/stub.sh"
-    cat > "$tmp/wrapper.sh" <<WEOF
-#!/usr/bin/env bash
-TICKET="\$1"
-export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
-exec "$tmp/stub.sh"
-WEOF
-    chmod +x "$tmp/wrapper.sh"
-    mkdir -p "$tmp/n1home/memory"
-    printf '{"queue":{"notify":"none"}}\n' > "$tmp/n1home/config.json"
-    cat > "$tmp/queue.md" <<EOF
----
-step: plan
-queue_id: n1-auto
-mode: tag
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-1 | A | /repo | $tmp/n1home | sonnet | pending | |
-| 2 | T-2 | B | /repo | $tmp/n1home | sonnet | pending | |
-| 3 | T-3 | C | /repo | $tmp/n1home | sonnet | pending | |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
+    mk_bg "$tmp" n1-auto "T-1:done" "T-2:done" "T-3:done"
+    sed -i 's/^queue_id: n1-auto$/&\nmode: tag/' "$tmp/queue.md"
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/fake/overview.T-1"
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/fake/overview.T-2"
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/fake/overview.T-3"
     cat > "$tmp/release-seen.sh" <<WEOF2
 #!/usr/bin/env bash
 printf '%s\n' "\$1" > "$tmp/release-called"
 WEOF2
     chmod +x "$tmp/release-seen.sh"
-    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
     export N1_QUEUE_RELEASE_STUB="$tmp/release-seen.sh"
-    export N1_HOME="$tmp/n1home"
-    local exit_code=0
-    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" >/dev/null 2>&1 || exit_code=$?
+    local exit_code; exit_code=$(run_bg_queue "$tmp")
+    unset N1_QUEUE_RELEASE_STUB
 
     assert_eq "auto-release-halt: runner halted" "2" "$exit_code"
     assert_eq "auto-release-halt: backstop still fired" "n1-auto" \
         "$(cat "$tmp/release-called" 2>/dev/null || echo "not called")"
 
-    unset N1_QUEUE_CHILD_STUB N1_QUEUE_RELEASE_STUB
-    rm -rf "$tmp"
-}
-
-# Real (unstubbed) Codex path: host comes from queue.md frontmatter even though
-# CLAUDE_PLUGIN_ROOT is exported (the runner forces it for path resolution).
-test_runner_codex_host() {
-    local tmp; tmp=$(mktemp -d)
-    mkdir -p "$tmp/bin" "$tmp/n1home/memory"
-    echo '{"queue":{"notify":"none"}}' > "$tmp/n1home/config.json"
-    cat > "$tmp/bin/codex" <<'EOF'
-#!/usr/bin/env bash
-for a; do last="$a"; done
-t="${last##* }"
-mkdir -p "$FAKE_N1H/memory/$t"
-printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/7\n' > "$FAKE_N1H/memory/$t/overview.md"
-EOF
-    printf '#!/bin/sh\necho called >> "$FAKE_N1H/claude-called"\n' > "$tmp/bin/claude"
-    chmod +x "$tmp/bin/codex" "$tmp/bin/claude"
-    cat > "$tmp/queue.md" <<EOF
----
-step: plan
-queue_id: test-cx
-host: codex
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-X | Do X | $tmp | $tmp/n1home | sonnet | pending | |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
-    local rc=0
-    env -u N1_QUEUE_CHILD_STUB FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
-        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
-    assert_eq "codex-host: exit 0" "0" "$rc"
-    assert_eq "codex-host: T-X pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "codex-host: claude never called" "no" "$([ -f "$tmp/n1home/claude-called" ] && echo yes || echo no)"
-    assert_eq "codex-host: Runs row exit/outcome/pr" "0|pr|https://x/pr/7" \
-        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-X/ { for (i=4;i<=6;i++) gsub(/ /,"",$i); print $4 "|" $5 "|" $6 }' "$tmp/queue.md")"
     rm -rf "$tmp"
 }
 
 # --- Background-session (claude-code) runner path ----------------------------
-# mk_bg <tmp> <queue-id> <ticket:states>... — queue.md (host: claude-code) plus a fake
+# mk_bg <tmp> <queue-id> <ticket:states>... — queue.md plus a fake
 # claude and a no-op sleep in <tmp>/bin. States are space-separated, one per poll of
 # that session; the last state repeats. Timeout 1 min, poll 30 s -> 2 polls.
+# Optional per-ticket files in <tmp>/fake: finish-step.<t>, overview.<t> (full overview written on done), deploy.<t>, clear.<t>, relay.<t>.
 mk_bg() {
     local tmp="$1" qid="$2" n=0 spec t; shift 2
     mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
@@ -876,6 +628,8 @@ case "$1" in
             exit 1
         fi
         printf '%s\n' "$prompt" > "$D/prompt.$name"
+        t="${prompt##* }"
+        grep '^queue_tag_removed:' "$FAKE_N1H/memory/$t/overview.md" > "$D/flag.$t" 2>/dev/null || true
         n=$(( $(cat "$D/seq" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/seq"
         printf '%08x' "$n" > "$D/id.$name"
         printf 'backgrounded \xc2\xb7 %08x \xc2\xb7 %s\n' "$n" "$name"
@@ -905,7 +659,8 @@ case "$1" in
                 # can simulate a bg session reporting done while overview never reached a
                 # terminal step (NP-216).
                 step="pr"; [ -f "$D/finish-step.$t" ] && step=$(cat "$D/finish-step.$t")
-                printf -- '---\nstep: %s\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" "$dp" > "$FAKE_N1H/memory/$t/overview.md"
+                if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
+                else printf -- '---\nstep: %s\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" "$dp" > "$FAKE_N1H/memory/$t/overview.md"; fi
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
             out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
@@ -919,7 +674,7 @@ FAKEEOF
     chmod +x "$tmp/bin/claude" "$tmp/bin/sleep"
     printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
     {
-        printf -- '---\nstep: plan\nqueue_id: %s\nhost: claude-code\n---\n## Plan\n' "$qid"
+        printf -- '---\nstep: plan\nqueue_id: %s\n---\n## Plan\n' "$qid"
         printf '| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
         for spec in "$@"; do
             n=$((n + 1)); t="${spec%%:*}"
@@ -932,7 +687,7 @@ FAKEEOF
 
 run_bg_queue() { # <tmp> — runs the runner with the fakes first on PATH; prints its exit code
     local rc=0
-    env -u N1_QUEUE_CHILD_STUB FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
+    env FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
         bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$1/queue.md" > "$1/output.txt" 2>&1 || rc=$?
     echo "$rc"
 }
@@ -955,8 +710,9 @@ test_bg_sequential() {
     assert_eq "bg-seq: launch flags" "yes" \
         "$(case "$(cat "$tmp/fake/args.n1-bgq-T-A-1")" in *"--model sonnet --permission-mode bypassPermissions --settings "*) echo yes ;; *) echo no ;; esac)"
     assert_eq "bg-seq: prompt" "/n1:n1-start T-A" "$(cat "$tmp/fake/prompt.n1-bgq-T-A-1")"
-    assert_eq "bg-seq: settings env + isolation" "1,autonomous,claude-code,ask,none" \
-        "$(jq -r '[.env.N1_HEADLESS,.env.N1_AUTONOMY_PRESET,.env.N1_HOST,.env.N1_UNATTENDED,.worktree.bgIsolation]|join(",")' "$tmp/fake/settings.n1-bgq-T-A-1")"
+    assert_eq "bg-seq: settings env + isolation" "1,autonomous,ask,none" \
+        "$(jq -r '[.env.N1_HEADLESS,.env.N1_AUTONOMY_PRESET,.env.N1_UNATTENDED,.worktree.bgIsolation]|join(",")' "$tmp/fake/settings.n1-bgq-T-A-1")"
+    assert_eq "bg-seq: no N1_HOST in settings" "false" "$(jq -r '.env|has("N1_HOST")' "$tmp/fake/settings.n1-bgq-T-A-1")"
     assert_eq "bg-seq: run id in settings" "$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
         "$(jq -r .env.N1_QUEUE_RUN_ID "$tmp/fake/settings.n1-bgq-T-A-1")"
     assert_eq "bg-seq: session id stored" "00000001" "$(n1_queue_session_id "$tmp/queue.md" T-A)"
@@ -1033,7 +789,6 @@ test_bg_missing_grace() {
 ---
 step: plan
 queue_id: bgq
-host: claude-code
 ---
 ## Plan
 | # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
@@ -1201,32 +956,6 @@ test_bg_relay_marker() {
     rm -rf "$tmp"
 }
 
-test_run_sync_reason_default() {
-    local tmp; tmp=$(mktemp -d)
-    mkdir -p "$tmp/n1home/memory/T-X"
-    cat > "$tmp/queue.md" <<EOF
----
-step: plan
-queue_id: syncq
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-X | Fix X | $tmp | $tmp/n1home | sonnet | pending | |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
-    local stub; stub=$(mktemp)
-    printf '#!/bin/sh\nexit 1\n' > "$stub"; chmod +x "$stub"
-    env N1_QUEUE_CHILD_STUB="$stub" N1_HOME="$tmp/n1home" \
-        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" >/dev/null 2>&1 || true
-    assert_eq "sync-reason: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "sync-reason: row 1 reason" "child-exit-1" "$(plan_cell "$tmp/queue.md" 1 9)"
-    rm -rf "$tmp" "$stub"
-}
-
 test_notify_check() {
     assert_eq "notify-check: none is silent" "" \
         "$(N1_HOME="$(mktemp -d)" bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo none; }; n1_queue_notify_check")"
@@ -1354,13 +1083,12 @@ test_fmt_elapsed() {
 }
 
 # --- n1_queue_status_table ----------------------------------------------------
-mk_status_queue() { # <tmp> <host> — a 3-row queue.md + events.jsonl + overview.md fixture
-    local tmp="$1" host="$2"
+mk_status_queue() { # <tmp> — a 3-row queue.md + events.jsonl + overview.md fixture
+    local tmp="$1"
     mkdir -p "$tmp/h/memory/T-2" "$tmp/h/memory/T-4"
     printf -- '---\nstep: review\n---\n' > "$tmp/h/memory/T-2/overview.md"
     printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- [headless] qa: first blocker\n- [headless] implementation: second blocker\n' > "$tmp/h/memory/T-4/overview.md"
     {
-        printf -- '---\nhost: %s\n---\n' "$host"
         printf '## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
         printf '| 1 | T-1 | A | /r | %s/h | sonnet | pr | |\n' "$tmp"
         printf '| 2 | T-2 | B | /r | %s/h | sonnet | in-progress | |\n' "$tmp"
@@ -1382,7 +1110,7 @@ test_queue_answer() {
     q="$tmp/n1home/queue/q1"; mkdir -p "$q" "$tmp/bin" "$tmp/repo"
     local af="$tmp/n1home/queue/.answer-T-1.txt"
     mkq() { # <status>
-        printf -- '---\nqueue_id: q1\nrun_id: R1\nmode: tag\nhost: claude-code\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-1 | Fix | %s | %s | sonnet | %s | |\n\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|---|---|---|---|---|---|\n| T-1 | x | | | | 0000abcd |\n' \
+        printf -- '---\nqueue_id: q1\nrun_id: R1\nmode: tag\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-1 | Fix | %s | %s | sonnet | %s | |\n\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|---|---|---|---|---|---|\n| T-1 | x | | | | 0000abcd |\n' \
             "$tmp/repo" "$tmp/n1home" "$1" > "$q/queue.md"
         printf '{"ticket":"T-1","step":"brainstorm","question":"Back-port?","options":["Back-port","Skip"],"recommended":"Back-port"}' > "$q/.question-T-1.json"
         : > "$q/events.jsonl"; rm -f "$tmp/log" "$tmp/prompt" "$tmp/fail-resume" "$tmp/no-full" "$q/.relay-T-1"
@@ -1473,7 +1201,7 @@ FAKEEOF
 
 test_status_table_claude_code() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    mk_status_queue "$tmp" claude-code
+    mk_status_queue "$tmp"
     mkdir -p "$tmp/bin"
     cat > "$tmp/bin/claude" <<'FAKEEOF'
 #!/usr/bin/env bash
@@ -1494,24 +1222,6 @@ FAKEEOF
     assert_eq "status: T-3 attach command" "claude attach 11112222" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
     assert_eq "status: T-4 escalated step from last headless Escalations line" "implementation" "$(echo "$out" | awk -F'\t' '$1=="T-4"{print $3}')"
     assert_eq "status: cost always em dash" "4" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
-}
-
-test_status_table_codex() {
-    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    mk_status_queue "$tmp" codex
-    # a `claude` that fails the test if invoked on the codex path
-    mkdir -p "$tmp/bin"
-    cat > "$tmp/bin/claude" <<'FAKEEOF'
-#!/usr/bin/env bash
-echo "claude should not be called on codex host" >&2
-exit 1
-FAKEEOF
-    chmod +x "$tmp/bin/claude"
-    local out; out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
-    assert_eq "status(codex): T-2 uses Plan status, no agents call" "in-progress" \
-        "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $2}')"
-    assert_eq "status(codex): T-3 no attach (no bg sessions)" "" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
-    assert_eq "status(codex): T-1 pr elapsed" "1m" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $4}')"
 }
 
 test_escalated_step_fallback() {
@@ -1564,8 +1274,11 @@ run_id: 20260923T195909Z
 FIXTUREEOF
     sed "s|/home/maphsky/.n1/test-project|$tmp/n1home|g" "$tmp/queue.md" > "$tmp/q" && mv "$tmp/q" "$tmp/queue.md"
     chmod 444 "$tmp/queue.md"
+    mkdir -p "$tmp/bin"
+    printf '#!/usr/bin/env bash\necho "[]"\n' > "$tmp/bin/claude"
+    chmod +x "$tmp/bin/claude"
     local out rc=0
-    out=$(N1_HOST=codex n1_queue_status_table "$tmp/queue.md" "$tmp/nonexistent-events.jsonl") || rc=$?
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/queue.md" "$tmp/nonexistent-events.jsonl") || rc=$?
     assert_eq "pre-NP-197 fixture: exits 0" "0" "$rc"
     assert_eq "pre-NP-197 fixture: TP-6 status from Plan" "pr" \
         "$(echo "$out" | awk -F'\t' '$1=="TP-6"{print $2}')"
@@ -1587,67 +1300,6 @@ test_child_status_deploy() {
     rm -rf "$tmp"
 }
 
-test_runner_deploy_pending() {
-    local tmp; tmp=$(mktemp -d)
-    cat > "$tmp/stub.sh" <<'STUBEOF'
-#!/usr/bin/env bash
-TICKET="$1"
-mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
-if [ "$TICKET" = T-D ]; then
-    printf -- '---\nstep: pr\ndeploy_pending: true\n---\n# T\n' > "$N1_QUEUE_OVERVIEW"
-else
-    sed -i.bak 's/^step: .*/step: pr/' "$N1_QUEUE_OVERVIEW"
-fi
-exit 0
-STUBEOF
-    chmod +x "$tmp/stub.sh"
-    cat > "$tmp/wrapper.sh" <<WEOF
-#!/usr/bin/env bash
-TICKET="\$1"
-export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
-exec "$tmp/stub.sh" "\$TICKET"
-WEOF
-    chmod +x "$tmp/wrapper.sh"
-    mkdir -p "$tmp/n1home/memory/T-P"
-    # Stale flag from an earlier run: the runner must reset it at launch.
-    printf -- '---\nstep: implement\ndeploy_pending: true\n---\n# T\n' > "$tmp/n1home/memory/T-P/overview.md"
-    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
-    cat > "$tmp/queue.md" <<EOF
----
-step: plan
-queue_id: test-dep
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-D | Deploy me | /repo | $tmp/n1home | sonnet | pending | |
-| 2 | T-P | Plain | /repo | $tmp/n1home | sonnet | pending | |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
-    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
-    export N1_HOME="$tmp/n1home"
-    local rc=0
-    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
-    assert_eq "runner-deploy: exit 0" "0" "$rc"
-    assert_eq "runner-deploy: T-D awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "runner-deploy: T-D reason" "awaiting-deploy" "$(plan_cell "$tmp/queue.md" 1 9)"
-    assert_eq "runner-deploy: queue continued, T-P pr (stale flag reset)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
-    assert_eq "runner-deploy: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
-    assert_eq "runner-deploy: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
-    assert_eq "runner-deploy: event outcome" "awaiting-deploy" \
-        "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-D") | .outcome' "$tmp/events.jsonl")"
-    assert_eq "runner-deploy: digest" "1 PR / 1 awaiting / 0 failed" \
-        "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
-    assert_eq "runner-deploy: needs-you notify with resume hint" "yes" \
-        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'n1-finish T-D' && echo yes || echo no)"
-    assert_eq "runner-deploy: hint" "T-D: n1-finish T-D (deploy pending)" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
-    unset N1_QUEUE_CHILD_STUB
-    rm -rf "$tmp"
-}
-
 test_bg_deploy_pending() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working done" "T-B:done"
@@ -1658,9 +1310,16 @@ test_bg_deploy_pending() {
     assert_eq "bg-deploy: T-B pr (queue moved on)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
     assert_eq "bg-deploy: finalized exactly once" "1" \
         "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_finished") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "bg-deploy: event outcome" "awaiting-deploy" \
+        "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-A") | .outcome' "$tmp/events.jsonl")"
+    assert_eq "bg-deploy: digest" "1 PR / 1 awaiting / 0 failed" \
+        "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
     assert_eq "bg-deploy: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
     assert_eq "bg-deploy: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
     assert_eq "bg-deploy: no parked wait message" "0" "$(grep -c 'awaiting-human rows left' "$tmp/output.txt" || true)"
+    assert_eq "bg-deploy: needs-you notify with resume hint" "yes" \
+        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'n1-finish T-A' && echo yes || echo no)"
+    assert_eq "bg-deploy: hint" "T-A: n1-finish T-A (deploy pending)" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
     rm -rf "$tmp"
 }
 
@@ -2087,7 +1746,6 @@ test_queue_digest
 test_fmt_elapsed
 test_status_table_pre_np197_fixture
 test_status_table_claude_code
-test_status_table_codex
 test_queue_answer
 test_escalated_step_fallback
 test_queue_event
@@ -2096,11 +1754,9 @@ test_desktop_notify
 test_notify_backends
 test_runner_three_strikes
 test_runner_all_pr
-test_runner_deploy_pending
 test_runner_tag_release
 test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
-test_runner_codex_host
 test_bg_sequential
 test_bg_awaiting
 test_bg_awaiting_timeout
@@ -2115,7 +1771,6 @@ test_bg_blocked_first_tick_parks
 test_bg_reason_child_exited_incomplete
 test_bg_reason_bg_state_catchall
 test_bg_relay_marker
-test_run_sync_reason_default
 test_notify_check
 test_bg_disclaimer
 test_busy_guard

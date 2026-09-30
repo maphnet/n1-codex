@@ -133,44 +133,4 @@ If approved (1), append to CLAUDE.md. If edit (3) — ask what to change first.
 
 ## Host Setup
 
-Detect the host once; the rest of n1-init reads `HOST` where behaviour differs.
-
-```bash
-source ~/.n1/preamble.sh
-HOST=$(n1_host)
-HOST_FILE=$(n1_host_file)
-CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"
-```
-
-**If `HOST` is `claude-code`:** nothing to do; continue.
-
-**If `HOST` is `codex`:** run these checks in order and stop at the first failure.
-
-1. **Hooks trusted.** N1's session-start hook writes `$HOST_FILE`. If the file is missing, or `jq -r .host "$HOST_FILE"` is not `codex`, or `jq -r .version "$HOST_FILE"` differs from `n1_plugin_version`, the hooks have not run for this plugin version. Tell the user:
-
-   ```
-   N1's hooks are not trusted yet. Run /hooks, trust the n1 plugin hooks, restart Codex, then run $n1-init again.
-   ```
-   **STOP.**
-
-2. **Multi-agent tools.** Check `features.multi_agent` and the tool list:
-   ```bash
-   MA=$(awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && $1=="multi_agent"{print $3}' "$CODEX_CFG" 2>/dev/null)
-   ```
-   If `MA` is `false`, or `spawn_agent` is absent from your tool list, tell the user:
-   ```
-   N1 dispatches its personas as Codex subagents, which needs multi-agent tools.
-   Add to ~/.codex/config.toml:
-     [features]
-     multi_agent = true
-   then restart Codex and run $n1-init again.
-   ```
-   **STOP.**
-
-3. **Persona files.** `ls .codex/agents/n1-*.toml 2>/dev/null | wc -l` must be 11 (one per spawnable persona). If it is 0, the hook could not write into this project: tell the user the path and **STOP**. Otherwise add the generated files to the project `.gitignore` if missing:
-   ```bash
-   grep -qF '.codex/agents/n1-*.toml' .gitignore 2>/dev/null || { [ -s .gitignore ] && [ -n "$(tail -c1 .gitignore)" ] && echo >> .gitignore; printf '# N1 generated Codex personas\n.codex/agents/n1-*.toml\n' >> .gitignore; }
-   ```
-   Log: "Added `.codex/agents/n1-*.toml` to .gitignore." (or "already ignored").
-
-4. **Default subagent model.** Read `DEF_MODEL=$(n1_codex_default default_subagent_model)` and `DEF_EFFORT=$(n1_codex_default default_subagent_reasoning_effort)`. If `DEF_MODEL` is empty, tell the user: "Codex has no `[agents] default_subagent_model`; known N1 personas still resolve through the shared role policy, while unknown personas inherit the session model. Set a default in ~/.codex/config.toml if you dispatch unknown personas." Continue to **Agent Model Configuration**, which on Codex is always offered (not only on request).
+Host is fixed to Claude Code; nothing to detect or set up here.

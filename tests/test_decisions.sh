@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
-export N1_HOST=claude-code N1_SESSION_ID=test-session
+export N1_SESSION_ID=test-session
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export N1_HOME="$T/home"; export ID="T-1"
 MEM="$N1_HOME/memory/$ID"; mkdir -p "$MEM/telemetry"

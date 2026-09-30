@@ -183,22 +183,17 @@ def extract_agents(run: dict) -> list[dict]:
     raw_agents = run.get("agents") or []
     agents = []
     for a in raw_agents:
-        is_codex = a.get("usage_status") == "unknown"
         agent = {
             "type": a.get("agent_type", "unknown"),
             "step": a.get("step", "unknown"),
             "duration_s": a.get("duration_s"),
             "model": a.get("model"),
         }
-        if is_codex:
-            agent["tokens"] = "N/A"
-            agent["usage_status"] = "unknown"
-        else:
-            agent["tokens"] = {
-                "input": a.get("input_tokens", 0),
-                "output": a.get("output_tokens", 0),
-                "cache_read": a.get("cache_read_tokens", 0),
-            }
+        agent["tokens"] = {
+            "input": a.get("input_tokens", 0),
+            "output": a.get("output_tokens", 0),
+            "cache_read": a.get("cache_read_tokens", 0),
+        }
         agent["tool_calls"] = a.get("tool_calls", 0)
         agent["tools"] = a.get("tools_used") or {}
         agents.append(agent)

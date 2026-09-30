@@ -133,10 +133,8 @@ n1_queue_child_status() {
     # strict=1 (NP-216 live-poll callers): only step:escalated counts as escalated.
     # ## Escalations is an append-only log (lib/memory.sh) that also gets an entry
     # in ask-mode while the child continues past the question — its mere presence
-    # is not proof of a terminal escalation for a still-running child. Post-exit
-    # callers (run_sync) keep the broader OR-check: a synchronous child that just
-    # escalated-and-exited sets step:escalated before exiting anyway, but the text
-    # check is kept there as a belt-and-suspenders fallback.
+    # is not proof of a terminal escalation for a still-running child. The bg-poll
+    # caller passes strict=1 to require step:escalated, not just the text's presence.
     local overview="$1" exit_code="${2:-0}" strict="${3:-}"
     if [ ! -f "$overview" ]; then
         [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
@@ -162,27 +160,16 @@ n1_queue_child_pr_url() {
 
 n1_queue_child_cmd() {
     # Usage: n1_queue_child_cmd <repoPath> <ticket-id> <model> <run-id> <log-path> [session-name]
-    # codex: synchronous headless child writing <log-path>.
-    # claude-code: background-session launch named <session-name>; stdout carries the
-    # session id (see n1_queue_parse_launch). <log-path> is unused there.
+    # Background-session launch named <session-name>; stdout carries the session id
+    # (see n1_queue_parse_launch). <log-path> is unused but kept for call-shape compatibility.
     # Caller env N1_QUEUE_TAG (tag mode only, else empty) is forwarded so the child can
     # release the queue tag on handoff (NP-199). Caller env N1_QUEUE_DIR (always set by the
     # runner) is forwarded so the child can read its ## Decisions row (NP-203).
-    # Test hook: when N1_QUEUE_CHILD_STUB is set, the command is "$N1_QUEUE_CHILD_STUB" <ticket>.
     local repo="$1" id="$2" model="$3" run_id="$4" log="$5" name="${6:-}"
-    if [ -n "${N1_QUEUE_CHILD_STUB:-}" ]; then
-        printf '"%s" "%s"' "$N1_QUEUE_CHILD_STUB" "$id"
-        return
-    fi
-    if [ "$(n1_host)" = claude-code ]; then
-        local settings
-        settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
-            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
-        n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
-        return
-    fi
-    printf 'cd %q && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_QUEUE_RUN_ID="%s" N1_QUEUE_TAG=%q N1_QUEUE_DIR=%q %s' \
-        "$repo" "$run_id" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
+    local settings
+    settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
+        '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
+    n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
 }
 
 _n1_queue_sanitize_cell() {
@@ -784,16 +771,11 @@ n1_fmt_elapsed() {
 n1_queue_status_table() {
     # Usage: n1_queue_status_table <queue.md> <events.jsonl>
     # Prints one tab-separated row per Plan row: Ticket State Step Elapsed Cost PR Attach.
-    # On claude-code, live-overrides State for in-progress/awaiting-human rows from
+    # Live-overrides State for in-progress/awaiting-human rows from
     # `claude agents --json --all` via n1_queue_bg_state (same missing/failed degradation
-    # it already applies; no second failure path). On codex, Plan Status + events.jsonl are
-    # already the full state (children run synchronously, one at a time).
-    local file="$1" events="$2" host agents_json now
-    host=$(n1_read_frontmatter "$file" host)
-    [ -n "$host" ] || host=$(n1_host)
-    if [ "$host" = claude-code ]; then
-        agents_json=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)
-    fi
+    # it already applies; no second failure path).
+    local file="$1" events="$2" agents_json now
+    agents_json=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)
     now=$(date +%s)
 
     while IFS=$'\t' read -r num ticket repo n1h model status; do
@@ -801,7 +783,7 @@ n1_queue_status_table() {
         case "$status" in
             in-progress|awaiting-human)
                 sid=$(n1_queue_session_id "$file" "$ticket")
-                if [ "$host" = claude-code ] && [ -n "$sid" ]; then
+                if [ -n "$sid" ]; then
                     local bgs; bgs=$(n1_queue_bg_state "$agents_json" "$sid")
                     case "$bgs" in
                         working) state=in-progress ;;
@@ -817,7 +799,7 @@ n1_queue_status_table() {
                     started_epoch=$(date -u -d "$started" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null || echo 0)
                     [ "$started_epoch" -gt 0 ] && elapsed=$(n1_fmt_elapsed "$((now - started_epoch))")
                 fi
-                [ "$state" = awaiting-human ] && [ -n "$sid" ] && [ "$host" = claude-code ] && attach=$(n1_bg_cmd attach "$sid")
+                [ "$state" = awaiting-human ] && [ -n "$sid" ] && attach=$(n1_bg_cmd attach "$sid")
                 if n1_queue_deploy_pending "$n1h" "$ticket"; then attach="n1-finish $ticket"; fi
                 ;;
             pr|failed|deferred|escalated)

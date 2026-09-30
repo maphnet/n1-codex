@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: scripts/bump-version.sh <new-version>
-# Sets the same version in all four plugin manifests (Claude Code + Codex).
+# Sets the same version in both Claude Code plugin manifests.
 set -euo pipefail
 NEW="${1:?usage: bump-version.sh <new-version>}"
 case "$NEW" in *.*.*) ;; *) echo "version must be MAJOR.MINOR.PATCH" >&2; exit 1 ;; esac
@@ -10,6 +10,4 @@ set_version() { # <file> <jq-path>
 }
 set_version .claude-plugin/plugin.json '.version'
 set_version .claude-plugin/marketplace.json '.plugins[0].version'
-set_version plugin.json '.version'
-set_version .agents/plugins/marketplace.json '.plugins[0].version'
-echo "version set to $NEW in 4 manifests"
+echo "version set to $NEW in 2 manifests"

@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-unset N1_SESSION_ID CODEX_THREAD_ID CODEX_SESSION_ID CLAUDE_CODE_SESSION_ID
+unset N1_SESSION_ID CLAUDE_CODE_SESSION_ID
 export N1_HOME="$T/home"; mkdir -p "$N1_HOME"
 source "$REPO_ROOT/lib/config.sh"
 source "$REPO_ROOT/lib/frontmatter.sh"

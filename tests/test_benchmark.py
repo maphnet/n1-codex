@@ -332,6 +332,15 @@ class CollectTest(unittest.TestCase):
                       "--out", str(self.d.out)])
         self.assertEqual(rc, 0)
 
+    def test_skips_codex_runs_in_mixed_host_history(self):
+        codex_run = make_run(run_id="n1-run-codex", ticket="T-3")
+        codex_run["host"] = "codex"
+        self.d.add_run(codex_run)
+        res = self.collect()
+        self.assertEqual(res["runs_new"], 2)
+        self.assertEqual(res["runs_skipped_host"], 1)
+        self.assertFalse((self.d.out / "runs" / "n1-run-codex.json").exists())
+
 
 def labeled(label, step="brainstorm", n=0):
     return {"id": f"r#{n}", "timestamp": "x", "step": step, "text": "t", "prev_assistant": "",
@@ -462,51 +471,6 @@ class CountToolCallsTest(unittest.TestCase):
         bm.compute_run_metrics(cache)
         self.assertIsNone(cache["metrics"]["bash_calls_per_run"])
         self.assertIsNone(cache["metrics"]["api_calls_per_run"])
-
-
-def codex_tool_record(ts, name, tool_type="function_call"):
-    return {"timestamp": ts, "type": "response_item", "payload": {"type": tool_type, "name": name}}
-
-
-class CountToolCallsCodexTest(unittest.TestCase):
-    def setUp(self):
-        self.d = TempDirs()
-
-    def write(self, records):
-        p = self.d.tmp / "rollout.jsonl"
-        write_jsonl(p, records)
-        return p
-
-    def test_counts_shell_and_total(self):
-        p = self.write([
-            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
-            codex_tool_record("2026-09-01T10:01:01Z", "read_file"),
-            codex_tool_record("2026-09-01T10:01:02Z", "shell"),
-            codex_tool_record("2026-09-01T10:01:03Z", "memory_search", tool_type="custom_tool_call"),
-        ])
-        bash, api = bm.count_tool_calls_codex(p)
-        self.assertEqual(bash, 2)
-        self.assertEqual(api, 4)
-
-    def test_non_response_item_records_ignored(self):
-        p = self.write([
-            {"type": "session_meta", "payload": {"cwd": "/foo"}},
-            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
-        ])
-        bash, api = bm.count_tool_calls_codex(p)
-        self.assertEqual(bash, 1)
-        self.assertEqual(api, 1)
-
-    def test_compute_run_metrics_dispatches_to_codex_counter(self):
-        p = self.write([
-            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
-            codex_tool_record("2026-09-01T10:01:01Z", "read_file"),
-        ])
-        run = {**make_run(), "host": "codex"}
-        cache = {"run_record": run, "turns": [], "transcript_path": str(p)}
-        bm.compute_run_metrics(cache)
-        self.assertEqual(cache["metrics"]["bash_calls_per_run"], 1.0)
-        self.assertEqual(cache["metrics"]["api_calls_per_run"], 2.0)
 
 
 class ApplyLabelsTest(unittest.TestCase):

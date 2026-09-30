@@ -28,8 +28,8 @@ source ~/.n1/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 
-Split the tab-separated model/effort result and pass both values to the host spawn. PR
-preparation does not supply an Astra context; `n1_resolve_model` is compatibility-only.
+Split the tab-separated model/effort result and pass both values to the host spawn.
+`n1_resolve_model` is compatibility-only.
 
 ## Steps
 
@@ -41,5 +41,5 @@ Execute steps in order. Read each step file and follow its instructions before p
 2. **Push & Create** — push and create PR, update tracker, update memory, report, post-PR follow-ups
    Read `<N1_ROOT>/skills/n1-pr/steps/02-push-create.md`
 
-3. **Cross-Host Review** -- optional Codex review of the PR (Claude Code only, skips silently when unavailable)
-   Read `<N1_ROOT>/skills/n1-pr/steps/03-cross-host-review.md`
+3. **Codex Review** -- Codex review of the PR (skips silently when unavailable)
+   Read `<N1_ROOT>/skills/n1-pr/steps/03-codex-review.md`

@@ -4,7 +4,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAIL=0
-unset N1_SESSION_ID CLAUDE_CODE_SESSION_ID CODEX_THREAD_ID N1_STATE_DIR
+unset N1_SESSION_ID CLAUDE_CODE_SESSION_ID N1_STATE_DIR
 
 # Test 1: preamble.sh sources cleanly with CLAUDE_PLUGIN_ROOT set
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
@@ -53,7 +53,7 @@ for c in bash cat mkdir mv rm printf dirname basename grep sed git jq head tr aw
     p=$(command -v "$c") && ln -sf "$p" "$NOPY_BIN/$c"
 done
 echo '{"session_id":"s-probe","source":"startup"}' | env -i HOME="$PROBE_HOME" PATH="$NOPY_BIN" \
-    N1_STATE_DIR="$PROBE_HOME/.n1" N1_HOME="$PROBE_HOME/proj" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    N1_STATE_DIR="$PROBE_HOME/.n1" N1_HOME="$PROBE_HOME/proj" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
     bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 PROBE_OUT=$(cd "$PROBE_HOME" && env -i HOME="$PROBE_HOME" PATH="$NOPY_BIN" N1_HOME="$PROBE_HOME/proj" CLAUDE_CODE_SESSION_ID=s-probe \
     bash -c 'source ~/.n1/preamble.sh && type n1_step_begin >/dev/null && echo "$N1_ROOT|$N1_HOME"' 2>&1) || true

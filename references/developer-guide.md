@@ -9,19 +9,15 @@ github.com/maphnet/n1-plugin/
   hooks/      Event hooks and scripts
   lib/        Shared shell library
   defaults/   Default config files
-  .claude-plugin/plugin.json   Plugin manifest (Claude Code)
-  .claude-plugin/marketplace.json  Claude Code marketplace manifest
-  plugin.json                  Codex plugin manifest
-  .agents/plugins/marketplace.json  Codex marketplace
-  hooks/codex-hooks.json       Codex hook registration
-  references/host-routing.md   Per-host dispatch table
+  .claude-plugin/plugin.json   Plugin manifest
+  .claude-plugin/marketplace.json  Marketplace manifest
 ```
 
 See [README.md](../README.md) for user-facing documentation: installation, quick start, skill usage examples, and full feature overview.
 
 ## What This Is
 
-N1 is a plugin for Claude Code and Codex that orchestrates the full development cycle (ticket read, analysis, brainstorm, plan, implement, QA, review, [local testing], PR). It uses a **hybrid delegation model**: specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native N1 skills handle interactive steps (brainstorming, planning, implementation dispatch). It is a **thin controller** (~5-10K tokens per skill): skills load only the memory files they need, spawn agents, and write results back to per-ticket memory.
+N1 is a plugin for Claude Code that orchestrates the full development cycle (ticket read, analysis, brainstorm, plan, implement, QA, review, [local testing], PR). It uses a **hybrid delegation model**: specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native N1 skills handle interactive steps (brainstorming, planning, implementation dispatch). It is a **thin controller** (~5-10K tokens per skill): skills load only the memory files they need, spawn agents, and write results back to per-ticket memory.
 
 **n1-start skill layout:** `skills/n1-start/SKILL.md` is a thin dispatcher (<6 KB); each of the 16 pipeline step bodies lives in `skills/n1-start/steps/<step>.md`. Shared orchestrator logic (workspace isolation, telemetry, output gates, resume) lives in `skills/n1-start/procedures/<name>.md`, referenced by steps on demand. Shared review logic lives in `skills/n1-start/review-core.md`.
 
@@ -56,8 +52,8 @@ Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without
 ## Stack
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
-- **Plugin manifests:** `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (Claude Code), `plugin.json` + `.agents/plugins/marketplace.json` (Codex); bump all four with `scripts/bump-version.sh`
-- **Shared shell helpers:** `lib/preamble.sh` (canonical bash preamble — sources `lib/config.sh` and helpers, resolves `N1_ROOT`/`N1_HOME`; sourced at the top of every bash snippet in skills), `lib/host.sh` (host detection, plugin root, headless command), `lib/agent_profiles.py` (Codex persona TOML generator), `lib/transcript_codex.py` (Codex rollout parser), `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/step.sh` (per-step begin/end helpers: telemetry, frontmatter, signal persistence, decision records), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE to `ticket-context.sh` so downstream bash snippets can source it instead of re-deriving from frontmatter), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation), `lib/queue.sh` (queue runner + story-mode helpers: service→repo lookup, model pick, child status/launch)
+- **Plugin manifests:** `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`; bump both with `scripts/bump-version.sh`
+- **Shared shell helpers:** `lib/preamble.sh` (canonical bash preamble — sources `lib/config.sh` and helpers, resolves `N1_ROOT`/`N1_HOME`; sourced at the top of every bash snippet in skills), `lib/host.sh` (plugin root, session id, headless/background commands), `lib/config.sh` (model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/step.sh` (per-step begin/end helpers: telemetry, frontmatter, signal persistence, decision records), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE to `ticket-context.sh` so downstream bash snippets can source it instead of re-deriving from frontmatter), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation), `lib/queue.sh` (queue runner + story-mode helpers: service→repo lookup, model pick, child status/launch)
 
 ## Plugin Development
 
@@ -72,7 +68,7 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 
 ### Notes for any future install/publish
 
-- A `file://` marketplace install copies from committed git **HEAD** into a cache, not the working tree. Refreshing it requires a `version` bump (all four manifests via `scripts/bump-version.sh`) followed by `claude plugin marketplace update n1-plugin` + `claude plugin update n1-plugin@n1-plugin`.
+- A `file://` marketplace install copies from committed git **HEAD** into a cache, not the working tree. Refreshing it requires a `version` bump (both manifests via `scripts/bump-version.sh`) followed by `claude plugin marketplace update n1-plugin` + `claude plugin update n1-plugin@n1-plugin`.
 - **Version bumps are mandatory for releases.** Any change that consumers should pick up requires a semver bump in **both** files. Without a bump, `plugin marketplace update` sees no change and consumers stay on the old version.
 - Cross-marketplace dependencies require `"marketplace"` in the dependency entry and `"allowCrossMarketplaceDependenciesOn"` in `marketplace.json`.
 - `marketplace.json` lives at the repo root (`.claude-plugin/marketplace.json`) so `/plugin marketplace add maphnet/n1-plugin` can find it.
@@ -84,7 +80,7 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 - **Always test on a separate repo before committing plugin changes**
 - **Dogfooding:** use N1 skills on the N1 repo itself
 - Run `bash tests/run.sh` before committing; every lib helper has a test file under `tests/` that builds throwaway git repos in `mktemp -d`.
-- Static: `tests/test_host_neutral_skills.sh` fails on any host tool name or host path literal in `skills/` or `agents/`; `tests/test_manifests.sh` checks the four manifest versions.
+- Static: `tests/test_host_neutral_skills.sh` fails on any host tool name or host path literal in `skills/` or `agents/`; `tests/test_manifests.sh` checks the manifest versions match.
 
 ### Auditing orchestrator delegation
 

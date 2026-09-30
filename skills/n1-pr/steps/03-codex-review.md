@@ -1,11 +1,9 @@
-<!-- Purpose: Optional cross-host review via Codex CLI after PR creation (Step 9). Claude Code -> Codex direction only. -->
+<!-- Purpose: Codex review of every PR via the Codex CLI after PR creation (Step 9). -->
 
-## Step 9: Cross-Host Review (optional)
+## Step 9: Codex Review
 
 Skip this step entirely (no output) when ANY of these conditions is true:
-- Ticket `tier` in `$N1_HOME/memory/$ID/overview.md` is not `complex` (missing file or field counts as not complex)
 - PR URL is not available from prior steps
-- Host is not `claude-code` (check via bash snippet below)
 - `crossHostReview.enabled` is explicitly `false` in config (default: `true` when absent)
 - `codex` CLI is not installed (`command -v codex` fails)
 - Codex auth is not available (`codex login status` exits non-zero)
@@ -17,11 +15,6 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/host.sh"
 source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
-
-HOST=$(n1_host)
-
-TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" 2>/dev/null || echo "")
-echo "tier=${TIER:-absent}"
 
 # NOTE: n1_config_val uses jq `// empty` which treats boolean false as falsy,
 # returning empty for both absent AND false. Use the null-check pattern instead
@@ -36,14 +29,11 @@ else
 fi
 # absent = default true (opt-out model); any other value is taken literally
 [ "$GATE" = "absent" ] && GATE="true"
-echo "host=$HOST"
 echo "crossHostReview_enabled=$GATE"
 echo "crossHostReview_autoTriage=$AUTO_TRIAGE"
 echo "codex_installed=$(command -v codex >/dev/null 2>&1 && echo yes || echo no)"
 ```
 
-If `tier` is not `complex`, skip silently.
-If `host` is not `claude-code`, skip silently.
 If `crossHostReview_enabled` is `false`, skip silently.
 If `codex_installed` is `no`, skip silently.
 
@@ -61,10 +51,10 @@ If `codex_auth` is `no`, skip silently.
 
 ### Auto-run
 
-All checks passed (tier is `complex`). Proceed automatically — no user prompt in any mode, including headless. Append a Decision Ledger row inside the `## Decision Ledger` table in `$N1_HOME/memory/$ID/overview.md` (insert before the next `##` section; create the table if absent):
+All checks passed. Proceed automatically — no user prompt in any mode, including headless. Append a Decision Ledger row inside the `## Decision Ledger` table in `$N1_HOME/memory/$ID/overview.md` (insert before the next `##` section; create the table if absent):
 
 ```
-| pr | mechanical | B | [auto] | Cross-host Codex review: auto-triggered for complex ticket | yes | — | tier=complex | --- |
+| pr | mechanical | B | [auto] | Codex review: auto-triggered for every PR | yes | — | — | --- |
 ```
 
 ### Dispatch
@@ -96,15 +86,15 @@ If `CODEX_OUTPUT` is non-empty, post as a PR comment. Pipe via stdin using `--bo
 
 ```bash
 # Pipe body via stdin to avoid shell interpolation of CODEX_OUTPUT.
-printf '## Cross-Host Review (Codex)\n\n%s\n' "$CODEX_OUTPUT" | \
+printf '## Codex Review\n\n%s\n' "$CODEX_OUTPUT" | \
   gh pr comment "$PR_NUMBER" --body-file -
 ```
 
-If `gh pr comment` fails, write findings to `$N1_HOME/memory/<ID>/cross-host-review.md` as fallback and warn inline.
+If `gh pr comment` fails, write findings to `$N1_HOME/memory/<ID>/codex-review.md` as fallback and warn inline.
 
 Report result:
 ```
-Cross-host review: posted as PR comment (or: written to memory as fallback)
+Codex review: posted as PR comment (or: written to memory as fallback)
 ```
 
 ### Triage Gate
@@ -136,7 +126,7 @@ If zero severity markers are found in the entire output, treat ALL findings as u
 
 If there are no High+ findings, skip to Triage Reply.
 
-> **ORCHESTRATOR GUARDRAIL (cross-host-triage): the orchestrator NEVER edits files, runs formatters, linters, or commits in this section. Every remediation goes through the developer spawn below.**
+> **ORCHESTRATOR GUARDRAIL (codex-triage): the orchestrator NEVER edits files, runs formatters, linters, or commits in this section. Every remediation goes through the developer spawn below.**
 
 Resolve model for developer:
 
@@ -154,7 +144,7 @@ Dispatch developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`. Pass:
 **Developer instructions:**
 
 ```
-You are fixing cross-host review findings on an open pull request.
+You are fixing Codex review findings on an open pull request.
 
 Workspace: resolve your working directory:
 - If `<worktree path>` exists, work there.
@@ -174,7 +164,7 @@ For each finding:
 Commit all fixes with descriptive messages. Push to the PR branch.
 
 Output format:
-## Cross-Host Review Fixes
+## Codex Review Fixes
 ### Finding: <summary>
 - **Action:** Fixed | Dismissed
 - **Detail:** <what was changed or why dismissed>
@@ -213,14 +203,14 @@ Omit any section that has zero items (e.g., if nothing was auto-fixed, omit the 
 ```bash
 # TRIAGE_BODY is constructed by the model from the parsed results above.
 # Post as rendered markdown via stdin.
-printf '## Cross-Host Review Triage\n\n%s\n' "$TRIAGE_BODY" | \
+printf '## Codex Review Triage\n\n%s\n' "$TRIAGE_BODY" | \
   gh pr comment "$PR_NUMBER" --body-file -
 ```
 
-If `gh pr comment` fails, write triage summary to `$N1_HOME/memory/$ID/cross-host-triage.md` as fallback and warn inline.
+If `gh pr comment` fails, write triage summary to `$N1_HOME/memory/$ID/codex-triage.md` as fallback and warn inline.
 
 Report result:
 ```
-Cross-host triage: posted as PR comment (or: written to memory as fallback)
+Codex triage: posted as PR comment (or: written to memory as fallback)
 Summary: N findings triaged — X auto-fixed, Y dismissed, Z for human review
 ```

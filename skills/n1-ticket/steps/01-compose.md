@@ -56,8 +56,7 @@ Resolve model:
 IFS=$'\t' read -r MODEL EFFORT < <(n1_resolve_agent 'solution-architect' 'light')
 ```
 
-Pass both `MODEL` and `EFFORT` to the spawn. The Codex effort policy may clamp the resolved
-effort to its medium floor.
+Pass both `MODEL` and `EFFORT` to the spawn.
 
 Spawn with these instructions:
 - Scope: the ticket title and description from Step 1

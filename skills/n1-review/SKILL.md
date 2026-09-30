@@ -32,11 +32,10 @@ When spawning any agent, resolve its model and reasoning effort together via Bas
 
 ```bash
 source ~/.n1/preamble.sh
-n1_resolve_agent <agent-name> [step-context] [astra-context]
+n1_resolve_agent <agent-name> [step-context]
 ```
 
-Split the tab-separated result and pass both values to the host spawn. Omit the optional
-Astra context unless the calling workflow has verified a canonical eligible context.
+Split the tab-separated result and pass both values to the host spawn.
 `n1_resolve_model` remains the model-only compatibility helper.
 
 ## Steps

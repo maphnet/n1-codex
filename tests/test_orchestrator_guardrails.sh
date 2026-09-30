@@ -72,8 +72,8 @@ assert_contains "brainstorm investigation: experiments delegated" \
     "ORCHESTRATOR GUARDRAIL (experiments)"
 
 # NP-144 — blocking dispatch requirement and post-dispatch verification gates
-assert_contains "host-routing: blocking dispatch requirement" \
-    "references/host-routing.md" \
+assert_contains "n1-start: blocking dispatch requirement" \
+    "skills/n1-start/SKILL.md" \
     "BLOCKING DISPATCH REQUIREMENT"
 assert_contains "brainstorm: post-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/brainstorm.md" \

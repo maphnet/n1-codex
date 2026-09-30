@@ -8,7 +8,7 @@ effort: medium
 
 # N1 Story from Context
 
-**Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context (a question tool on Claude Code, a plain numbered-options message on Codex). "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
+**Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
 Create a story with subtask tickets from the current conversation context and/or a provided description. All tickets are created as backlog items — no status transitions, no branch creation.
 

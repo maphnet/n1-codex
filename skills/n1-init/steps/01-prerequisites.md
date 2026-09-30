@@ -10,7 +10,7 @@ Check if CLAUDE.md exists in the project root:
 
 Check for N1 configuration in priority order:
 
-1. **New-format config:** Resolve N1_HOME by running the preamble line from `references/host-routing.md` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
+1. **New-format config:** Resolve N1_HOME by running `source ~/.n1/preamble.sh` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
    - **If exists:** First prune dead keys that no code reads (idempotent, all hosts; prints only when something was removed):
      ```bash
      source ~/.n1/preamble.sh
@@ -209,15 +209,14 @@ When an old `.n1/n1.config.json` is detected:
       rm -rf .n1/memory .n1/n1.config.json 2>/dev/null || true
       ```
       Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
-   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs). Run only when `HOST` is `claude-code`; skip entries whose value is an object (host-keyed).
+   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs). Legacy host-keyed objects (`{"claude-code":"opus"}`) are first collapsed to their `claude-code` string (read the same way `_n1_model_override` in `lib/config.sh` reads them); any entry still not a plain string after that is dropped.
       ```bash
       source ~/.n1/preamble.sh
-      [ "$(n1_host)" = "claude-code" ] || exit 0
       CFG="$HOME/.n1/$PROJECT_NAME/config.json"
+      jq '.models |= with_entries(.value |= (if type=="object" then (.["claude-code"] // empty) else . end)) | .models |= with_entries(select(.value|type=="string"))' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
       for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
         def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
         cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
-        [ "$(printf '%s' "$cur" | cut -c1)" = "{" ] && continue
         if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
           jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
           echo "pruned models.$a=$cur (equals frontmatter default)"
