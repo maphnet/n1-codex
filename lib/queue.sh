@@ -351,14 +351,16 @@ _n1_queue_repo_slug() {
 n1_queue_merge_gate() {
     # Usage: n1_queue_merge_gate <n1-home> <ticket> <queue-dir> <repo>
     # N1-64 strict gate (condition 4) before the orchestrating session merges a blocking child PR.
-    # SEC-1 (CWE-345/441): a child-written overview.md pr_url is untrusted data — before anything
-    # else, incl. the MERGED short-circuit, bind it to the blocker row: the URL's owner/repo must
-    # be <repo>'s own origin remote, the PR's headRefName must be the ticket's own branch
-    # (overview.md `branch`, else the git.branchPattern+lowercased-ticket convention
-    # workspace-isolation.md uses), and baseRefName must be <repo>'s configured default branch.
-    # Then: real GitHub PR URL, review PASS, no open escalation (step escalated or a pending
-    # .question file), GitHub mergeable + a clean merge state (SEC-2: no TOCTOU merge queue/draft
-    # state), and every CI check green (no checks = not green).
+    # SEC-1/SEC-9 (CWE-345/441): a child-written overview.md (pr_url, branch) is untrusted data —
+    # before anything else, incl. the MERGED short-circuit, bind it to the blocker row: the URL's
+    # owner/repo must be <repo>'s own origin remote, and the PR's headRefName must match the
+    # ticket id <t> itself (lowercased, non-alnum -> "-", optional "owner/"-style path prefix) —
+    # never the child-writable overview.md `branch` field or a branchPattern template, both of
+    # which the child (or a forged PR) fully controls. baseRefName must be <repo>'s configured
+    # default branch, and isCrossRepository must be false (no merging a fork's PR). Then: real
+    # GitHub PR URL, review PASS, no open escalation (step escalated or a pending .question file),
+    # GitHub mergeable + a clean merge state (SEC-2: no TOCTOU merge queue/draft state), and every
+    # CI check green (no checks = not green).
     # Review PASS: review_fix_cycle absent/0 means review passed clean on the first try — fix.md,
     # which increments clean_passes, is only ever entered on a FAIL (skills/n1-start/steps/fix.md).
     # clean_passes alone can't distinguish "never needed a fix" from "still failing", so a fix
@@ -369,7 +371,7 @@ n1_queue_merge_gate() {
     # MERGED): a human or an interrupted earlier tick can merge a blocker outside this gate, and
     # a merged PR's own mergeable/CI fields are stale or UNKNOWN — checked after identity so that
     # case doesn't strand held tickets behind a PR that is already in.
-    local home="$1" t="$2" dir="$3" repo="$4" ov url owner_repo remote_slug branch base rfc cp js oid
+    local home="$1" t="$2" dir="$3" repo="$4" ov url owner_repo remote_slug tl head base rfc cp js oid
     case "$t" in ''|*[!A-Za-z0-9_-]*) echo "gate: invalid ticket"; return 1 ;; esac
     ov="$home/memory/$t/overview.md"
     url=$(n1_queue_child_pr_url "$ov")
@@ -378,13 +380,13 @@ n1_queue_merge_gate() {
     remote_slug=$(_n1_queue_repo_slug "$repo")
     [ -n "$remote_slug" ] && [ "$owner_repo" = "$remote_slug" ] \
         || { echo "gate: PR repo does not match blocker's repo"; return 1; }
-    js=$(gh pr view "$url" --json headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,state 2>/dev/null) \
+    js=$(gh pr view "$url" --json headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,state,isCrossRepository 2>/dev/null) \
         || { echo "gate: gh pr view failed"; return 1; }
-    branch=$(n1_read_frontmatter "$ov" branch)
-    if [ -z "$branch" ]; then
-        branch="$(N1_HOME="$home" n1_config_val '.git.branchPattern')$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')"
-    fi
-    [ "$(printf '%s' "$js" | jq -r '.headRefName // ""' 2>/dev/null)" = "$branch" ] \
+    [ "$(printf '%s' "$js" | jq -r '.isCrossRepository // false' 2>/dev/null)" = "false" ] \
+        || { echo "gate: PR is from a fork"; return 1; }
+    tl=$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+    head=$(printf '%s' "$js" | jq -r '.headRefName // ""' 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    [[ "$head" =~ ^([a-z0-9._-]+/)?${tl}$ ]] \
         || { echo "gate: PR branch does not match ticket branch"; return 1; }
     base=$(N1_HOME="$home" n1_config_val '.git.defaultBranch'); base="${base:-main}"
     [ "$(printf '%s' "$js" | jq -r '.baseRefName // ""' 2>/dev/null)" = "$base" ] \
@@ -402,6 +404,10 @@ n1_queue_merge_gate() {
     printf '%s' "$js" | jq -e '(.statusCheckRollup // []) as $c | ($c | length) > 0
         and ($c | all((.conclusion // .state // "") as $s | $s == "SUCCESS" or $s == "NEUTRAL" or $s == "SKIPPED"))' >/dev/null 2>&1 \
         || { echo "gate: CI not green"; return 1; }
+    # SEC-10: the caller merges with --match-head-commit "$oid" — a malformed/empty sha would
+    # either break that command or (worse) be silently ignored by gh, defeating SEC-2's TOCTOU
+    # guard. Only the MERGED short-circuit above tolerates a stale/missing oid (informational).
+    [[ "$oid" =~ ^[0-9a-f]{40}$ ]] || { echo "gate: no head sha"; return 1; }
     printf '%s\t%s' "$url" "$oid"
 }
 
@@ -417,12 +423,14 @@ n1_queue_sync_default() {
     local repo="$1" d cur
     [ -d "$repo" ] || { echo "n1-queue: sync: no such repo $repo" >&2; return 1; }
     d=$(n1_config_val '.git.defaultBranch'); d="${d:-main}"
+    # SEC-11: d comes from config, not attacker data, but validate before it reaches a refspec.
+    git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: sync: invalid default branch $d" >&2; return 1; }
     git -C "$repo" fetch origin "$d" >&2 || { echo "n1-queue: sync: fetch origin $d failed in $repo" >&2; return 1; }
     cur=$(git -C "$repo" branch --show-current 2>/dev/null)
     if [ "$cur" = "$d" ]; then
         git -C "$repo" merge --ff-only "origin/$d" >&2 || { echo "n1-queue: sync: ff-only merge of $d failed in $repo" >&2; return 1; }
     else
-        git -C "$repo" fetch origin "$d:$d" >&2 || { echo "n1-queue: sync: fetch origin $d:$d failed in $repo" >&2; return 1; }
+        git -C "$repo" fetch origin "refs/heads/$d:refs/heads/$d" >&2 || { echo "n1-queue: sync: fetch origin $d:$d failed in $repo" >&2; return 1; }
     fi
 }
 

@@ -1427,6 +1427,14 @@ test_sync_default() {
     assert_eq "sync: checked out elsewhere, updates local ref" "0" "$(n1_queue_sync_default "$repo" >/dev/null 2>&1; echo $?)"
     git -C "$repo" checkout -q main
     assert_eq "sync: local main advanced" "$(git -C "$origin" rev-parse main)" "$(git -C "$repo" rev-parse main)"
+    # N1-64 TQ-2: default branch checked out (the ff-only merge path, not the fetch-into-ref path).
+    git -C "$origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m newer
+    local before after; before=$(git -C "$repo" rev-parse HEAD)
+    assert_eq "sync: ff-only path, default checked out" "0" "$(n1_queue_sync_default "$repo" >/dev/null 2>&1; echo $?)"
+    after=$(git -C "$repo" rev-parse HEAD)
+    assert_eq "sync: ff-only path advanced HEAD" "$(git -C "$origin" rev-parse main)" "$after"
+    [ "$before" != "$after" ] && echo "PASS: sync: ff-only path actually moved HEAD" && PASS=$((PASS+1)) \
+        || { echo "FAIL: sync: ff-only path actually moved HEAD"; FAIL=$((FAIL+1)); }
     git -C "$repo" remote set-url origin "$tmp/no-such-origin"
     assert_eq "sync: unreachable remote -> failure, no unblock" "1" "$(n1_queue_sync_default "$repo" >/dev/null 2>&1; echo $?)"
     rm -rf "$tmp"
@@ -1442,22 +1450,41 @@ test_merge_gate() {
     # tell "never needed a fix" from "still failing" — review_fix_cycle disambiguates.
     good_ov() { printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"; }
     good_ov_after_fix() { printf -- '---\nstep: ci\nbranch: feature/t-1\nreview_fix_cycle: 1\nclean_passes: 1\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"; }
+    local SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     # N1-64 SEC-1: identity fields (headRefName/baseRefName) are checked before mergeable/CI/state.
-    GH_OK='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"},{"state":"SUCCESS"}]}'
+    # SEC-9: headRefName is bound to the ticket id T-1 itself (-> "t-1"), never to overview.md's
+    # own (child-writable) `branch` field, which here is left set to a mismatched value on purpose
+    # to prove a forged/stale `branch:` field no longer has any effect on the gate.
+    GH_OK="{\"headRefName\":\"feature/t-1\",\"headRefOid\":\"$SHA\",\"baseRefName\":\"main\",\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"state\":\"OPEN\",\"isCrossRepository\":false,\"statusCheckRollup\":[{\"conclusion\":\"SUCCESS\",\"status\":\"COMPLETED\"},{\"state\":\"SUCCESS\"}]}"
     gh() { [ -z "${GH_FAIL:-}" ] || return 1; printf '%s' "$GH_JSON"; }
     gate() { n1_queue_merge_gate "$tmp/h" T-1 "$tmp/qd" "$repo" || true; }
     good_ov; GH_JSON="$GH_OK"
-    assert_eq "gate: all conditions hold, first-try-clean review" "$(printf 'https://github.com/o/r/pull/5\tabc123')" "$(gate)"
+    assert_eq "gate: all conditions hold, first-try-clean review" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
     good_ov_after_fix; GH_JSON="$GH_OK"
-    assert_eq "gate: all conditions hold, review converged after a fix cycle" "$(printf 'https://github.com/o/r/pull/5\tabc123')" "$(gate)"
+    assert_eq "gate: all conditions hold, review converged after a fix cycle" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
     printf -- '---\nstep: pr\n---\n' > "$ov"
     assert_eq "gate: no PR url" "gate: no real PR URL" "$(gate)"
     # N1-64 SEC-1: PR repo not the blocker's own origin -> rejected before anything else.
     printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/other/repo/pull/9\n' > "$ov"
     assert_eq "gate: PR repo mismatch" "gate: PR repo does not match blocker's repo" "$(gate)"
-    good_ov; GH_JSON='{"headRefName":"someone-elses-branch","headRefOid":"abc123","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+    # N1-64 SEC-9: overview.md's `branch:` is forged to match the (also attacker-controlled) PR's
+    # headRefName exactly — the old branch-trusting compare would have passed this; the ticket-id
+    # derived check still rejects it because it ignores overview.md's `branch:` entirely.
+    printf -- '---\nstep: ci\nbranch: someone-elses-branch\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"
+    GH_JSON="${GH_OK//feature\/t-1/someone-elses-branch}"
+    assert_eq "gate: forged branch: field does not help" "gate: PR branch does not match ticket branch" "$(gate)"
+    good_ov; GH_JSON='{"headRefName":"other-branch","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
     assert_eq "gate: PR head branch mismatch" "gate: PR branch does not match ticket branch" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"not-the-default","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+    # N1-64 SEC-9: headRefName is matched case-insensitively, and an optional owner/prefix-style
+    # path segment before the ticket slug is accepted (e.g. "feature/t-1").
+    GH_JSON='{"headRefName":"T-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+    assert_eq "gate: uppercase head branch accepted" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
+    GH_JSON='{"headRefName":"feature/n1-64","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+    assert_eq "gate: T-1 branch mismatch with prefixed other ticket slug" "gate: PR branch does not match ticket branch" "$(gate)"
+    # N1-64 SEC-9: isCrossRepository (a fork PR) is rejected even when repo/branch/base match.
+    GH_JSON="${GH_OK/\"isCrossRepository\":false/\"isCrossRepository\":true}"
+    assert_eq "gate: fork PR rejected" "gate: PR is from a fork" "$(gate)"
+    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"not-the-default","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
     assert_eq "gate: PR base branch mismatch" "gate: PR base is not the default branch" "$(gate)"
     good_ov_after_fix; GH_JSON="$GH_OK"; sed -i 's/clean_passes: 1/clean_passes: 0/' "$ov"
     assert_eq "gate: fix cycle ran but never converged" "gate: review not PASS" "$(gate)"
@@ -1466,16 +1493,19 @@ test_merge_gate() {
     good_ov; echo '{}' > "$tmp/qd/.question-T-1.json"
     assert_eq "gate: pending question" "gate: open escalation" "$(gate)"
     rm -f "$tmp/qd/.question-T-1.json"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","state":"OPEN","statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
     assert_eq "gate: not mergeable" "gate: not mergeable" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","state":"OPEN","statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
     assert_eq "gate: not clean merge state (SEC-2)" "gate: not clean" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","statusCheckRollup":[{"conclusion":"FAILURE"}]}'
+    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"FAILURE"}]}'
     assert_eq "gate: CI failed" "gate: CI not green" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","statusCheckRollup":[{"conclusion":"","status":"IN_PROGRESS"}]}'
+    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"","status":"IN_PROGRESS"}]}'
     assert_eq "gate: CI pending" "gate: CI not green" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","statusCheckRollup":[]}'
+    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[]}'
     assert_eq "gate: no CI checks" "gate: CI not green" "$(gate)"
+    # N1-64 SEC-10: a malformed/short head sha fails the gate even though everything else is green.
+    GH_JSON="${GH_OK/\"headRefOid\":\"$SHA\"/\"headRefOid\":\"abc123\"}"
+    assert_eq "gate: malformed head sha" "gate: no head sha" "$(gate)"
     GH_JSON="$GH_OK"; GH_FAIL=1
     assert_eq "gate: gh error" "gate: gh pr view failed" "$(gate)"
     unset GH_FAIL
@@ -1484,9 +1514,16 @@ test_merge_gate() {
     # `gh` directly, or a previous tick's merge landed but this tick's unblock was interrupted).
     # A merged PR reports mergeable=UNKNOWN and a stale/empty rollup in the live API — state:MERGED
     # is what actually matters, and the gate must not strand held tickets behind it forever.
-    # Identity (repo/branch/base) is still enforced before the MERGED short-circuit.
-    good_ov; GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"UNKNOWN","state":"MERGED","statusCheckRollup":[]}'
+    # Identity (repo/branch/base) is still enforced before the MERGED short-circuit; SEC-10's sha
+    # check is not (the merged PR's own oid is informational only at that point).
+    good_ov; GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"UNKNOWN","isCrossRepository":false,"state":"MERGED","statusCheckRollup":[]}'
     assert_eq "gate: already merged externally -> still passes" "$(printf 'https://github.com/o/r/pull/5\tabc123')" "$(gate)"
+    # N1-64 TQ-1: ssh-form origin ("git@github.com:O/R.git", uppercase owner/repo) still binds.
+    git -C "$repo" remote set-url origin "git@github.com:O/R.git"
+    good_ov; GH_JSON="${GH_OK}"
+    printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/O/R/pull/5\n' > "$ov"
+    assert_eq "gate: TQ-1 ssh-form uppercase origin binds" "$(printf 'https://github.com/O/R/pull/5\t%s' "$SHA")" "$(gate)"
+    git -C "$repo" remote set-url origin https://github.com/o/r.git
     unset -f gh good_ov good_ov_after_fix gate
     rm -rf "$tmp"
 }
