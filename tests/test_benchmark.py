@@ -332,6 +332,15 @@ class CollectTest(unittest.TestCase):
                       "--out", str(self.d.out)])
         self.assertEqual(rc, 0)
 
+    def test_skips_codex_runs_in_mixed_host_history(self):
+        codex_run = make_run(run_id="n1-run-codex", ticket="T-3")
+        codex_run["host"] = "codex"
+        self.d.add_run(codex_run)
+        res = self.collect()
+        self.assertEqual(res["runs_new"], 2)
+        self.assertEqual(res["runs_skipped_host"], 1)
+        self.assertFalse((self.d.out / "runs" / "n1-run-codex.json").exists())
+
 
 def labeled(label, step="brainstorm", n=0):
     return {"id": f"r#{n}", "timestamp": "x", "step": step, "text": "t", "prev_assistant": "",

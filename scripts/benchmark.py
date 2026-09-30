@@ -410,6 +410,12 @@ def cmd_collect(args) -> int:
     since = parse_ts(f"{args.since}T00:00:00Z") if args.since else None
     if since is not None:
         runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) >= since]
+    # Transcript parsing only understands Claude Code records; drop historical
+    # Codex runs instead of collecting them with garbage (zero turns/calls) metrics.
+    skipped_host = sum(1 for r in runs if r.get("host") == "codex")
+    runs = [r for r in runs if r.get("host") != "codex"]
+    if skipped_host:
+        print(f"skipped {skipped_host} run(s) with unsupported host (codex)", file=sys.stderr)
     existing = {} if args.force else load_cache(out)
     new, cached, ambiguous = 0, 0, []
     for run in runs:
@@ -425,7 +431,7 @@ def cmd_collect(args) -> int:
             if t.get("label") == "ambiguous":
                 ambiguous.append({"id": t["id"], "text": t["text"], "prev_assistant": t["prev_assistant"]})
     result = {"ambiguous": ambiguous, "runs_new": new, "runs_cached": cached,
-              "runs_total": len(runs), "malformed_lines": malformed}
+              "runs_total": len(runs), "malformed_lines": malformed, "runs_skipped_host": skipped_host}
     payload = json.dumps(result, indent=1)
     if args.ambiguous_out:
         Path(args.ambiguous_out).write_text(payload, encoding="utf-8")
@@ -853,6 +859,13 @@ def _read_labels(path: str) -> dict:
 def cmd_finalize(args) -> int:
     out = Path(args.out)
     caches = load_cache(out)
+    # Drop stale Codex caches collected before host filtering was added — their
+    # transcripts were never parsed, so metrics are zeroed and would skew aggregates.
+    skipped_host = [rid for rid, c in caches.items() if c.get("host") == "codex"]
+    for rid in skipped_host:
+        del caches[rid]
+    if skipped_host:
+        print(f"skipped {len(skipped_host)} cached run(s) with unsupported host (codex)", file=sys.stderr)
     if not caches:
         print("No collected runs. Run `collect` first.")
         return 0
