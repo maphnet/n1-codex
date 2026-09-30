@@ -1,12 +1,12 @@
 # N1 (No-One)
 
-AI-driven development orchestrator for Claude Code and Codex. No one writes the code.
+AI-driven development orchestrator for Claude Code. No one writes the code.
 
-N1 is a plugin that orchestrates the full development cycle using 11 specialized agent personas and native skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); native skills handle interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop. The same repository installs on both hosts; see [references/host-routing.md](references/host-routing.md) for how each host is addressed.
+N1 is a Claude Code plugin that orchestrates the full development cycle using 11 specialized agent personas and native skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); native skills handle interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
 
 ## Requirements
 
-- [Claude Code](https://claude.ai/code) 2.1+ **or** [Codex CLI](https://github.com/openai/codex) 0.154+
+- [Claude Code](https://claude.ai/code) 2.1+
 - `git`, `gh` (GitHub CLI), `jq`, and `python3` on PATH
 - Optional: Jira (Atlassian MCP) or YouTrack MCP for tracker integration
 - Optional: Sentry MCP for error-tracking integration
@@ -22,20 +22,10 @@ N1 is a plugin that orchestrates the full development cycle using 11 specialized
 
 Then enable auto-update: `/plugin` → Marketplaces → n1 → Auto-update.
 
-### Codex
-
-```
-codex plugin marketplace add maphnet/n1-plugin
-codex plugin add n1@n1
-```
-
-Make sure `~/.codex/config.toml` has `[features] multi_agent = true` and, recommended, `[agents] default_subagent_model`. Start Codex in your project, run `/hooks` and trust the n1 hooks once, then `$n1-init`. Skills are invoked as `$n1-start TRID-510` (the `/n1:n1-start` form in the docs is the Claude Code spelling). N1 writes its persona definitions to `.codex/agents/n1-*.toml` in the project at every session start; `n1-init` adds them to `.gitignore`.
-
 For local development:
 
 ```bash
-claude --plugin-dir ~/dev/n1-plugin          # Claude Code
-codex plugin marketplace add ~/dev/n1-plugin && codex plugin add n1@n1   # Codex (re-add after edits)
+claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /reload-plugins to pick up edits
 ```
 
 ## Quick Start
@@ -197,7 +187,7 @@ When enabled, estimation runs automatically in the `n1-start` pipeline (after pl
 
 ## How It Works
 
-N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 11 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native skills handle interactive steps (brainstorming, planning, implementation dispatch). Each agent gets fresh context with scoped tools. On Codex, personas are dispatched with `spawn_agent` from generated `.codex/agents/n1-*.toml` files and tool scoping is enforced by the `enforce-agent-policy` hook.
+N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 11 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native skills handle interactive steps (brainstorming, planning, implementation dispatch). Each agent gets fresh context with scoped tools, enforced at runtime by Claude Code's own agent allowlist.
 
 ### Agent Personas
 
@@ -215,28 +205,6 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 | tech-writer | sonnet | medium | PR content generation |
 
 Defaults come from agent frontmatter; `models.*` in config is an explicit override that also disables signal-based tier adjustments for that agent.
-
-#### Codex tier policy
-
-The table above remains the Claude role baseline. On Codex, N1 translates those roles through a
-workload policy and resolves every effort at `medium` or above:
-
-| Claude role baseline | Codex default | Effort |
-|---|---|---|
-| Opus-role | `gpt-5.6-sol` | `medium+` |
-| Sonnet-role | `gpt-5.6-terra` | `medium+` |
-| Haiku/minimal | `gpt-5.6-luna` | `medium+` |
-
-An explicit non-Astra Codex override wins over routing rules. `low` effort is accepted so N1 can
-warn about the conflict, then clamps to `medium`. `gpt-6-astra` is opt-in and never selected by a
-tier rule: a configured override is used only for the verified runtime contexts
-`final-whole-branch-review`, `architecture-adjudication`, or `failed-fix-escalation` (after two
-persisted failed fix cycles).
-
-The [OpenAI Codex model positioning](https://developers.openai.com/codex/models/) and
-[pricing](https://developers.openai.com/codex/pricing/) pages support differentiated workload and
-cost routing. Opus/Sonnet/Haiku to Sol/Terra/Luna is nevertheless an N1 workload policy; those
-sources do not demonstrate cross-vendor quality equivalence.
 
 ### Per-Ticket Memory
 
@@ -262,6 +230,7 @@ Throwaway investigative tests and benchmarks (one-off probes that answer a quest
 
 **Fixed checkpoints (always):**
 - After PR creation — Tech Lead reviews
+- After PR creation — Codex Review runs automatically on every PR (opt-out: `crossHostReview.enabled: false` in config), posting findings as a PR comment
 
 **Confidence-based (during implementation):**
 - Low confidence + High blast radius → stop and ask
