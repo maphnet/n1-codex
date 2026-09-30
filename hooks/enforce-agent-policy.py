@@ -33,8 +33,7 @@ target for this hook. Unreadable config fails closed (deny).
 
 Fail-open otherwise: exit 0, no output.
 
-Usage: enforce-agent-policy.py <config_file> <plugin_root> <host>   (payload on stdin;
-host is accepted for argv-shape compatibility and unused)
+Usage: enforce-agent-policy.py <config_file> <plugin_root>   (payload on stdin)
 """
 
 import json

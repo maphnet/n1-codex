@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, queue merge gate) on both hosts.
+# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, queue merge gate).
 # Delegates to enforce-agent-policy.py; fail-open unless the script denies (exit 2).
 set -euo pipefail
 
@@ -19,7 +19,7 @@ INPUT=$(cat)
 # always forward to Python (which does its own quote-stripping, SEC-21); non-queue sessions
 # keep the cheap filter unchanged.
 case "$INPUT" in
-    *'"n1:'* | *'"n1-'*) : ;;
+    *'"n1:'*) : ;;
     *)
         if [ -z "${N1_QUEUE_RUN_ID:-}" ]; then
             case "$INPUT" in
@@ -32,7 +32,6 @@ esac
 
 CONFIG_FILE=$(n1_config_file)
 PLUGIN_ROOT_DIR=$(n1_plugin_root)
-HOST=$(n1_host)
 
 # Find a WORKING interpreter — `command -v python3` can resolve to a broken
 # pyenv-win shim that exists on PATH but fails to run.
@@ -57,7 +56,7 @@ if [ -z "$PY" ]; then
 fi
 
 set +e
-printf '%s' "$INPUT" | "$PY" "${SCRIPT_DIR}/enforce-agent-policy.py" "${CONFIG_FILE:-}" "$PLUGIN_ROOT_DIR" "$HOST"
+printf '%s' "$INPUT" | "$PY" "${SCRIPT_DIR}/enforce-agent-policy.py" "${CONFIG_FILE:-}" "$PLUGIN_ROOT_DIR"
 RC=$?
 set -e
 [ "$RC" -eq 2 ] && exit 2

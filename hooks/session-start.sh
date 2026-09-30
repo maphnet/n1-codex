@@ -6,7 +6,7 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 source "${SCRIPT_DIR}/../lib/frontmatter.sh"
 
 INPUT=$(cat)
-# Both hosts send the SessionStart reason as `source` (startup|resume|clear|compact).
+# The SessionStart reason is sent as `source` (startup|resume|clear|compact).
 TRIGGER=$(printf '%s' "$INPUT" | n1_hook_field source)
 HOOK_CWD=$(printf '%s' "$INPUT" | n1_hook_field cwd)
 N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)

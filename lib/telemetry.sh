@@ -13,7 +13,6 @@ n1_run_begin() {
     facts=$(n1_session_file 2>/dev/null || true)
     transcript="${N1_TRANSCRIPT_PATH:-}"
     if [ -f "$facts" ]; then
-        [ "$host" != unknown ] || host=$(n1_hook_field host < "$facts")
         [ -n "$transcript" ] || transcript=$(n1_hook_field transcript_path < "$facts")
     fi
     export N1_SESSION_ID="$session"

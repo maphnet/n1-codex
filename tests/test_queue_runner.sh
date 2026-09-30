@@ -789,7 +789,6 @@ test_bg_missing_grace() {
 ---
 step: plan
 queue_id: bgq
-host: claude-code
 ---
 ## Plan
 | # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
@@ -1111,7 +1110,7 @@ test_queue_answer() {
     q="$tmp/n1home/queue/q1"; mkdir -p "$q" "$tmp/bin" "$tmp/repo"
     local af="$tmp/n1home/queue/.answer-T-1.txt"
     mkq() { # <status>
-        printf -- '---\nqueue_id: q1\nrun_id: R1\nmode: tag\nhost: claude-code\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-1 | Fix | %s | %s | sonnet | %s | |\n\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|---|---|---|---|---|---|\n| T-1 | x | | | | 0000abcd |\n' \
+        printf -- '---\nqueue_id: q1\nrun_id: R1\nmode: tag\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-1 | Fix | %s | %s | sonnet | %s | |\n\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|---|---|---|---|---|---|\n| T-1 | x | | | | 0000abcd |\n' \
             "$tmp/repo" "$tmp/n1home" "$1" > "$q/queue.md"
         printf '{"ticket":"T-1","step":"brainstorm","question":"Back-port?","options":["Back-port","Skip"],"recommended":"Back-port"}' > "$q/.question-T-1.json"
         : > "$q/events.jsonl"; rm -f "$tmp/log" "$tmp/prompt" "$tmp/fail-resume" "$tmp/no-full" "$q/.relay-T-1"
