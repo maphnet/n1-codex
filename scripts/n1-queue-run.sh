@@ -233,7 +233,7 @@ run_bg() {
     # a ticket already 170 of 180 minutes in gets a fresh 180. Add persisted elapsed-time
     # tracking (e.g. derive from the Runs row's Started timestamp) if crash-resume timing
     # accuracy matters; no test or AC currently requires it.
-    local SINCE_PARK=0 AGENT_FAILS=0
+    local SINCE_PARK=0 AGENT_FAILS=0 HELD_WAIT=0 HELD
     local -a WORKED=()
     local -a MISSING=()
     POLL=$(n1_queue_val pollSeconds)
@@ -330,11 +330,23 @@ run_bg() {
             ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
             if [ -n "$ROW" ]; then
                 launch_bg "$ROW"
+                HELD_WAIT=0
             else
-                # Nothing pending: finish when nothing is parked, or the awaiting wait expired.
-                [ -n "$(n1_queue_parked_rows "$QUEUE")" ] || break
-                if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then
-                    echo "awaiting-human rows left for the user; queue done"
+                # N1-64: held rows (same-plan blocker) are never launched here; the orchestrating
+                # session releases them after merging the blocker (n1_queue_unblock).
+                HELD=$(n1_queue_held_sweep "$QUEUE")
+                if [ -n "$(n1_queue_parked_rows "$QUEUE")" ]; then
+                    # Parked rows wait on the human; the parked wait below bounds held rows too.
+                    HELD_WAIT=0
+                    if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then
+                        [ "$HELD" -gt 0 ] && n1_queue_held_expire "$QUEUE"
+                        echo "awaiting-human rows left for the user; queue done"
+                        break
+                    fi
+                elif [ "$HELD" -gt 0 ] && [ "$HELD_WAIT" -lt "$TIMEOUT_SECS" ]; then
+                    HELD_WAIT=$((HELD_WAIT + POLL))
+                else
+                    [ "$HELD" -gt 0 ] && { n1_queue_held_expire "$QUEUE"; echo "held rows expired (blocker not merged)"; }
                     break
                 fi
             fi

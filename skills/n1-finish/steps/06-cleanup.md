@@ -12,6 +12,7 @@
    - **Smoke:** <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed) | n/a>
    - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
+   pr_url: <PR URL from the `## Pending` section being removed below; omit this line on the local-merge path, which has no PR>
    ```
    If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending/succeeded delivery as n/a. Set frontmatter:
    ```bash
