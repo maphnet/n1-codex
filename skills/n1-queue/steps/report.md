@@ -95,7 +95,7 @@ case "$STEP" in
 esac
 ```
 
-On `watch:no`: print "Not watching queue <id>: <reason>." On `watch:yes`: follow the `background event watch (n1-queue)` row in `<N1_ROOT>/references/host-routing.md`. Where supported, watch the event log in the background and relay matching lines, running exactly this (no start line: only events after the snapshot above; a cursor this session left earlier wins):
+On `watch:no`: print "Not watching queue <id>: <reason>." On `watch:yes`: watch the event log in the background and relay matching lines, running exactly this (no start line: only events after the snapshot above; a cursor this session left earlier wins):
 
 ```bash
 source ~/.n1/preamble.sh

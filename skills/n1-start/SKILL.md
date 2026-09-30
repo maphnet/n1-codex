@@ -9,7 +9,11 @@ model: sonnet
 
 **Host vocabulary:** "ask the user" = host question mechanism from HOST ROUTING. "Dispatch persona `<name>`" and "invoke skill `<x>`" follow HOST ROUTING.
 
-Accepts ticket ID or brain dump. Orchestrates full development cycle: product-analyst, solution-architect, developer, qa-engineer, code-reviewer, security-reviewer, tech-writer.
+**Never dispatch a fork subagent:** dispatches are typed personas or general-purpose subagents with fresh context.
+
+> **BLOCKING DISPATCH REQUIREMENT:** stay foreground — do NOT continue until the worker's result is available. Fabricating completion is a violation.
+
+Accepts ticket ID or brain dump and orchestrates the full development cycle through N1 personas.
 
 ## N1_HOME Resolution
 
@@ -21,7 +25,7 @@ source ~/.n1/preamble.sh
 
 Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/<ID>/`.
 
-**Prerequisites:** `N1_HOME` empty → tell user N1 not configured, offer `/n1:n1-init`. **Model Resolution:** dispatches use `n1_resolve_agent <agent-name> [context] [astra-context]`, split its tab-separated model/effort result, and pass both values to the host spawn. `n1_resolve_model` remains the model-only compatibility helper.
+**Prerequisites:** `N1_HOME` empty → tell user N1 not configured, offer `/n1:n1-init`. **Model Resolution:** dispatches use `n1_resolve_agent <agent-name> [context]`; pass its model (first tab-separated field) to the spawn.
 
 ## Procedures (read on demand)
 

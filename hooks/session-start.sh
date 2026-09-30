@@ -60,50 +60,18 @@ SHIM_TMP="${SHIM}.$$.tmp"
 printf 'source %q/"${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:?N1: no session id in env; restart the session}}}.preamble.sh"\n' "$SESSIONS_DIR" \
     > "$SHIM_TMP" 2>/dev/null && mv -f "$SHIM_TMP" "$SHIM" 2>/dev/null || rm -f "$SHIM_TMP" 2>/dev/null || true
 
-if [ "$N1_HOST_NAME" = "codex" ]; then
-    HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
+HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 
-HOST ROUTING (host: codex — authoritative for how N1 skills reach the harness):
-- Dispatch persona <name>: run n1_resolve_agent <name> <step-context> [astra-context]; its tab-separated model/effort result is authoritative. Inspect the available spawn_agent schema at dispatch time: pass agent_type only if supported; otherwise read agents/<name>.md and embed its complete instructions plus the resolved model/effort in the fork-none message. Pass model/effort fields only when supported, otherwise retain them in that message; preserve workspace, constraints, and output contract. Direct work dispatches developer; planned implementation dispatches implementer. A dispatch may return queued or running; wait for its mailbox/result completion before proceeding. A wait timeout never starts a replacement. Fix loops use followup_task or send_message when exposed; use send_input only when it is actually exposed.
-- Dispatch a general-purpose subagent: spawn_agent without agent_type, fork_turns \"none\".
-- Ask the user: use an available question tool within its documented constraints; otherwise ask in a plain final message.
-- Load deferred tools through the discovery capability exposed by this harness, if any.
-- Invoke skill <x>: \$<x>. Skill references written /n1:n1-<skill> are invoked as \$n1-<skill>.
-- <N1_ROOT> in skill text means the N1 PLUGIN ROOT above. Persona definitions are .codex/agents/n1-*.toml (generated at session start, never edit).
-- Full table: ${N1_ROOT_DIR}/references/host-routing.md"
-elif [ "$N1_HOST_NAME" = "claude-code" ]; then
-    HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
-
-HOST ROUTING (host: claude-code — authoritative for how N1 skills reach the harness):
-- Dispatch persona <name>: Agent tool with subagent_type \"n1:<name>\", prompt, model from N1 model resolution. Wait for it: the tool call returns the result inline. Fix loops: dispatch a fresh persona per cycle.
+HOST ROUTING (authoritative for how N1 skills reach Claude Code):
+- Dispatch persona <name>: Agent tool with subagent_type \"n1:<name>\", prompt, model from n1_resolve_agent (first tab-separated field). Wait for it: the tool call returns the result inline. Fix loops: dispatch a fresh persona per cycle.
 - Dispatch a general-purpose subagent: Agent tool with subagent_type \"general-purpose\".
 - never use subagent_type \"fork\". All dispatches use typed personas or general-purpose subagents with fresh context.
 - Ask the user: AskUserQuestion tool (max 4 questions per call).
 - Load the tool if deferred: ToolSearch with select:<tool>.
 - Invoke skill <x>: Skill tool with n1:<x>.
 - <N1_ROOT> in skill text means the N1 PLUGIN ROOT above.
-- Full table: ${N1_ROOT_DIR}/references/host-routing.md"
-else
-    HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
-HOST ROUTING: unknown. Establish the host from the active harness before dispatch; shared host.json is discovery only."
-fi
-if [ "$N1_HOST_NAME" = "unknown" ]; then
-    HOST_BLOCK+="
-N1 RUN IDENTITY: export N1_SESSION_ID=${N1_SESSION_ID}. N1_HOST could not be determined at startup — do NOT export it; each bash snippet detects the host from CLAUDE_PLUGIN_ROOT or CODEX_THREAD_ID at runtime. Session facts: ${SESSION_FILE:-unavailable}."
-else
-    HOST_BLOCK+="
-N1 RUN IDENTITY: export N1_HOST=${N1_HOST_NAME}; export N1_SESSION_ID=${N1_SESSION_ID}. Carry these values into each helper shell. Session facts: ${SESSION_FILE:-unavailable}."
-fi
-HOST_BLOCK+="
-DISPATCH LIMITS: Model/effort text in a prompt does not enforce runtime configuration. If native arguments or a configured equivalent cannot preserve the resolved pair, report the unsupported capability before dispatching. send_message may not wake an idle worker; use a supported continuation that does.
+N1 RUN IDENTITY: export N1_HOST=claude-code; export N1_SESSION_ID=${N1_SESSION_ID}. Carry these values into each helper shell. Session facts: ${SESSION_FILE:-unavailable}.
 COMMIT ATTRIBUTION: The harness attribution reminder (e.g. a Co-Authored-By trailer) yields to user instructions (any CLAUDE.md, global or project, or memory rule). If they forbid or change it, never pass it into a persona prompt and never apply it to your own commits."
-
-# Codex cannot ship agents: materialise persona TOMLs in the project (idempotent, fingerprinted).
-if [ "$N1_HOST_NAME" = "codex" ] && [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
-    _cfg=$(n1_config_file)
-    python3 "${SCRIPT_DIR}/../lib/agent_profiles.py" --plugin-root "$N1_ROOT_DIR" --out "${HOOK_CWD}/.codex/agents" \
-        ${_cfg:+--config "$_cfg"} --version "$N1_VERSION_STR" >/dev/null 2>&1 || true
-fi
 
 CONFIG_FILE=$(n1_config_file)
 

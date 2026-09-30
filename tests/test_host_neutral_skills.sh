@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Skill and agent text must stay host-neutral (references/host-routing.md). Each check greps
-# skills/ and agents/ for a host-specific literal and fails on any hit.
+# Skill and agent text must not hard-code values that helpers own (plugin root, worktree root,
+# headless transport, config reads). Tool vocabulary stays host-neutral by convention.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
@@ -10,11 +10,7 @@ check() { # <label> <extended-regex>
     if [ -n "$hits" ]; then echo "FAIL: $1"; echo "$hits" | head -20; FAIL=1; else echo "PASS: $1"; fi
 }
 check "plugin root literal" '\$\{CLAUDE_PLUGIN_ROOT\}'
-check "AskUserQuestion literal" 'AskUserQuestion'
-check "ToolSearch literal" 'ToolSearch'
-check "Agent tool / subagent_type literal" 'Agent tool|subagent_type|when the Agent returns'
-check "Skill tool / superpowers: prefix" 'Skill tool|superpowers:'
-check "persona namespace literal" '"n1:[a-z-]+"|`n1:(solution-architect|developer|planner|implementer|qa-engineer|code-reviewer|security-reviewer|tech-writer|product-analyst|local-test-planner)`'
+check "superpowers: prefix" 'superpowers:'
 # NP-192: N1_ROOT is never resolved inline; snippets source the hook-generated ~/.n1/preamble.sh shim.
 check "inline N1_ROOT resolution (use: source ~/.n1/preamble.sh)" 'N1_ROOT="\$\{CLAUDE_PLUGIN_ROOT|source "\$N1_ROOT/lib/preamble\.sh"|~/\.n1/root'
 
@@ -45,5 +41,10 @@ check "json_val is undefined (use n1_config_val)" '(^|[^a-zA-Z_])json_val([^a-zA
 # N1-57: config is read key-by-key via n1_*_val helpers; dumping the whole file put dead keys
 # (escalation.checkpoints) in context and the model invented a push/PR confirmation gate.
 check "full config.json read (use n1_*_val helpers)" 'cat[[:space:]]+"?\$\{?N1_HOME\}?/config\.json'
+
+# Fork prohibition (moved from test_dispatch_parity.sh, N1-63): the injected routing block and
+# the n1-start dispatcher both forbid fork subagents.
+if grep -qiE 'never.*fork' hooks/session-start.sh; then echo "PASS: session injection prohibits fork subagents"; else echo "FAIL: session injection prohibits fork subagents"; FAIL=1; fi
+if grep -qiE 'never.*fork' skills/n1-start/SKILL.md; then echo "PASS: n1-start dispatcher prohibits fork subagents"; else echo "FAIL: n1-start dispatcher prohibits fork subagents"; FAIL=1; fi
 
 exit $FAIL

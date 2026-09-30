@@ -10,7 +10,7 @@ Check if CLAUDE.md exists in the project root:
 
 Check for N1 configuration in priority order:
 
-1. **New-format config:** Resolve N1_HOME by running the preamble line from `references/host-routing.md` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
+1. **New-format config:** Resolve N1_HOME by running `source ~/.n1/preamble.sh` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
    - **If exists:** First prune dead keys that no code reads (idempotent, all hosts; prints only when something was removed):
      ```bash
      source ~/.n1/preamble.sh

@@ -153,19 +153,14 @@ assert_eq "queue: backslash-split git denied"       2 "$(gate claude-code RUN1 "
 assert_eq "queue: quote-split push branch denied"   2 "$(gate claude-code RUN1 "$GR" "git push origin ma''in")"
 rm -f "$N1_HOME/config.json"
 
-# --- telemetry hooks accept the Codex persona prefix -----------------------
+# --- telemetry hooks accept the Claude Code persona prefix -----------------
 MEM3="$N1_HOME/memory/T-20/telemetry"; mkdir -p "$MEM3"
 mkdir -p "$MEM3/locks"
-echo '{"run_id":"n1-run-codex","n1_version":"3.0.0","host":"codex","session_id":"01a094f8"}' > "$MEM3/locks/n1-run-codex.json"
-N1_HOST=codex bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/codex/subagent-start.json"
-assert_eq "codex agent start recorded" "n1-developer" "$(jq -r .agent_type "$MEM3/raw/agents/n1-run-codex.jsonl")"
-env -u N1_HOST bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/codex/subagent-start.json"
-assert_eq "identity-less hook does not claim Codex lock" "1" "$(wc -l < "$MEM3/raw/agents/n1-run-codex.jsonl")"
 echo '{"run_id":"n1-run-claude","n1_version":"3.0.0","host":"claude-code","session_id":"s-claude-1"}' > "$MEM3/locks/n1-run-claude.json"
 N1_HOST=claude-code bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/claude/subagent-start.json"
 assert_eq "claude agent start recorded" "n1:developer" "$(jq -r .agent_type "$MEM3/raw/agents/n1-run-claude.jsonl")"
 
-# --- session-start: host.json, routing block, codex TOML generation --------
+# --- session-start: host.json, routing block ------------------------------
 export N1_HOST_FILE="$T/host.json"
 rm -f "$N1_HOST_FILE"; rm -f "$N1_HOME/config.json"
 OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
@@ -177,14 +172,14 @@ assert_eq "constant trampoline written next to host.json" "$TRAMPOLINE" "$(cat "
 assert_eq "per-session preamble written for the payload session id" "N1_ROOT=$REPO_ROOT
 source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$N1_STATE_DIR/sessions/s-claude-1.preamble.sh" 2>/dev/null)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
-case "$CTX" in *"HOST ROUTING (host: claude-code"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
+case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
 echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
 PROJ="$T/proj"; mkdir -p "$PROJ"
-PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/codex/session-start.json")
-OUT=$(echo "$PAYLOAD" | N1_HOST=codex CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CODEX_HOME="$T/codexhome" bash "$REPO_ROOT/hooks/session-start.sh")
+PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/claude/session-start.json")
+OUT=$(echo "$PAYLOAD" | N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
-assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
-case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent schema"*"agent_type only if supported"*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
+assert_eq "host.json written (claude, configured)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
+case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block (configured)" ok ok;; *) assert_eq "claude routing block (configured)" ok "$CTX";; esac
 case "$CTX" in *"that is their explicit request to commit, push the feature branch, and create the PR"*"does not authorize merge, release, or pushing the default branch"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
