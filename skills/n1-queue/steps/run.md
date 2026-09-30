@@ -201,27 +201,29 @@ On failure, relay the question to the user as in the unchanged path.
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
-for B in $(n1_queue_merge_candidates "<QUEUE_DIR>/queue.md"); do
-    if OUT=$(n1_queue_merge_gate "$N1_HOME" "$B" "<QUEUE_DIR>"); then echo "MERGE $B $OUT"; else echo "WAIT $B $OUT"; fi
+n1_queue_merge_candidates "<QUEUE_DIR>/queue.md" | while IFS=$'\t' read -r B H; do
+    if OUT=$(n1_queue_merge_gate "$H" "$B" "<QUEUE_DIR>"); then echo "MERGE $B $H $OUT"; else echo "WAIT $B $OUT"; fi
 done
 ```
 
-No output, or only `WAIT` lines: do nothing. Never merge on a partial gate. The runner keeps held tickets waiting (bounded by `subtaskTimeoutMinutes`, then `skip`). For each `MERGE <B> <URL>` line:
+No output, or only `WAIT` lines: do nothing. Never merge on a partial gate. The runner keeps held tickets waiting (bounded by `subtaskTimeoutMinutes`, then `skip`). For each `MERGE <B> <H> <URL>` line (`<H>` is the blocker row's own N1 Home):
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
 M=$(n1_config_val '.finishWork.mergeMethod'); case "$M" in merge|rebase) ;; *) M=squash ;; esac
-if gh pr merge "<URL>" --"$M" \
-    || [ "$(gh pr view "<URL>" --json state -q .state 2>/dev/null)" = MERGED ]; then
+gh pr merge "<URL>" --"$M"; RC=$?
+if [ "$(gh pr view "<URL>" --json state -q .state 2>/dev/null)" = MERGED ]; then
     n1_queue_unblock "<QUEUE_DIR>" "<B>" "<URL>"
+elif [ "$RC" -eq 0 ]; then
+    echo "n1-queue: <B> enqueued, not merged yet; re-checking next watch cycle"
 else
     echo "n1-queue: merge failed for <B>, leaving held tickets waiting" >&2
 fi
 ```
 
-If the merge command itself fails, re-check the PR's state before giving up: someone (a human, or an interrupted earlier tick) may have already merged it outside this gate, in which case still unblock — do not strand held tickets behind a PR that is already in. Only a genuine merge failure (conflicts, permissions, closed-not-merged) does nothing further; print GitHub's error. On success (fresh merge or already-merged), invoke skill `n1-finish <B>`: it sees the merged PR, moves the ticket to Done and cleans up. This is the only merge the queue performs outside `queue.mergeOnFinish`. It happens only in this session, which has no PreToolUse merge gate (children keep hook Case 3). Release is never part of it.
+Unblock only once the PR's state is `MERGED`: with a GitHub merge queue the merge command exits 0 but only enqueues, so do nothing further this tick (the next watch cycle re-evaluates). If the merge command itself fails, the state re-check still matters: someone (a human, or an interrupted earlier tick) may have already merged it outside this gate, in which case still unblock — do not strand held tickets behind a PR that is already in. Only a genuine merge failure (conflicts, permissions, closed-not-merged) does nothing further; print GitHub's error. On success (fresh merge or already-merged), invoke skill `n1-finish <B>` against N1 Home `<H>` (export `N1_HOME=<H>` in its snippets when it differs from this session's): it sees the merged PR, moves the ticket to Done and cleans up. This is the only merge the queue performs outside `queue.mergeOnFinish`. It happens only in this session, which has no PreToolUse merge gate (children keep hook Case 3). Release is never part of it.
 
 Print "Queue <QUEUE_ID> started (<N> tickets, pid <PID>). Each ticket stops after PR + CI. <MERGE_MODE from the preview>." then: "This session relays tickets that need you, ticket results, a halt, and the finish while it stays open. Out-of-session alerts: `queue.notify` = <notify>. Check: <queue watch hint>."
 

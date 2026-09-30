@@ -314,12 +314,14 @@ n1_queue_merge_candidates() {
     # N1-64 merge-to-unblock trigger, conditions 1-3: prints each ticket whose Plan Status is pr
     # (a real PR, N1-53) that at least one held row waits on, but only while no row is pending
     # or in-progress (the run cannot progress without it). Parked rows wait on the human and
-    # do not count as progress.
+    # do not count as progress. Output: <ticket><TAB><blocker's N1 Home> (its last pr row), so
+    # cross-repo queues gate/finish against the blocker's own memory, not the session's.
     local q="$1" num t b
     [ -z "$(n1_queue_pending_rows "$q" 'pending|in-progress')" ] || return 0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num")
-        [ -n "$b" ] && [ "$(n1_queue_ticket_status "$q" "$b")" = pr ] && printf '%s\n' "$b"
+        [ -n "$b" ] && [ "$(n1_queue_ticket_status "$q" "$b")" = pr ] || continue
+        n1_queue_pending_rows "$q" pr | awk -F'\t' -v b="$b" '$2 == b { h = $4 } END { printf "%s\t%s\n", b, h }'
     done < <(n1_queue_pending_rows "$q" held) | sort -u
 }
 

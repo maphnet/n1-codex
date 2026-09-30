@@ -1394,7 +1394,7 @@ test_merge_candidates() {
     # n1_queue_unblock takes the queue dir, so the plan lives at $tmp/queue.md.
     local tmp; tmp=$(mktemp -d)
     mk_held_plan "$tmp/queue.md" pr
-    assert_eq "merge-cand: stalled on T-1" "T-1" "$(n1_queue_merge_candidates "$tmp/queue.md")"
+    assert_eq "merge-cand: stalled on T-1" "T-1	/h" "$(n1_queue_merge_candidates "$tmp/queue.md")"
     mk_held_plan "$tmp/queue.md" in-progress
     assert_eq "merge-cand: blocker not pr" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
     mk_held_plan "$tmp/queue.md" pr
@@ -1403,6 +1403,9 @@ test_merge_candidates() {
     mk_held_plan "$tmp/queue.md" pr
     sed -i 's/ held | blocked_on T-1 · tag match / held | blocked_on T-9 /' "$tmp/queue.md"
     assert_eq "merge-cand: nobody held on T-1" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
+    mk_held_plan "$tmp/queue.md" pr
+    sed -i 's/^| 1 | T-1 | A | \/r | \/h |/| 1 | T-1 | A | \/r2 | \/h2 |/' "$tmp/queue.md"
+    assert_eq "merge-cand: blocker's own N1 Home" "T-1	/h2" "$(n1_queue_merge_candidates "$tmp/queue.md")"
     mk_held_plan "$tmp/queue.md" pr
     n1_queue_unblock "$tmp" T-1 "https://github.com/o/r/pull/5"
     assert_eq "unblock: T-2 released" "pending|released: T-1 merged" "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
