@@ -58,5 +58,22 @@ assert_eq "malformed question -> critical" "critical: unreadable question" "$(cl
 jq -n '{question:"x"}' > "$T/nocat.json"
 assert_eq "no category (older child) -> critical" "critical: no category" "$(cls "$T/nocat.json" "$T/norules")"
 
+# N1-64 CR-7: n1_rule_field must not strip in-word apostrophes, only a wrapping quote pair.
+printf -- "---\ndescription: Don't log user's tokens\n---\nx\n" > "$T/rules/apo.rule.md"
+assert_eq "CR-7: in-word apostrophes preserved" "Don't log user's tokens" \
+    "$(n1_rule_field "$T/rules/apo.rule.md" description)"
+rm -f "$T/rules/apo.rule.md"
+
+# N1-64 SEC-13: escalation_critical present but only comma separators (no real pattern) fails safe.
+mkdir -p "$T/rulescomma"
+printf -- '---\ndescription: Comma only\ntopic: escalation\napplies_to: queue\nenforcement: gate\nescalation_critical: ","\n---\nx\n' > "$T/rulescomma/comma.rule.md"
+assert_eq "SEC-13: comma-only escalation_critical fails safe to critical" \
+    "critical: rule comma (empty escalation_critical)" "$(cls "$T/plain.json" "$T/rulescomma")"
+
+# N1-64 SEC-13: CRLF rule files (frontmatter delimiters with trailing \r) still parse.
+mkdir -p "$T/rulescrlf"
+printf -- '---\r\ndescription: CRLF fleet\r\ntopic: escalation\r\napplies_to: queue\r\nenforcement: gate\r\nescalation_critical: gateway restart\r\n---\r\nx\r\n' > "$T/rulescrlf/crlf.rule.md"
+assert_eq "SEC-13: CRLF rule file matches its pattern" "critical: rule crlf" "$(cls "$T/gw.json" "$T/rulescrlf")"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

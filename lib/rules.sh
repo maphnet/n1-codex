@@ -18,12 +18,14 @@ n1_rule_field() {
     local file="$1" key="$2"
     [ -f "$file" ] || return 0
     awk -v key="$key" '
+        { gsub(/\r/, "") }
         NR==1 && /^---$/ { in_fm=1; next }
         in_fm && /^---$/ { exit }
         in_fm && $0 ~ "^" key ":" {
             sub("^" key ":[[:space:]]*", "")
-            gsub(/\r/, "")
-            gsub(/[\[\]"'"'"']/, "")
+            gsub(/[\[\]"]/, "")
+            sub(/^'"'"'/, "")
+            sub(/'"'"'$/, "")
             gsub(/,[[:space:]]+/, ",")
             gsub(/^[[:space:]]+|[[:space:]]+$/, "")
             printf "%s", $0
@@ -378,21 +380,27 @@ n1_escalation_critical() {
     while IFS= read -r rf; do
         [ -z "$rf" ] && continue
         raw=$(n1_rule_field "$rf" escalation_critical)
-        if [ -z "$raw" ]; then
-            # SEC-4: escalation_critical: present but empty (malformed/misauthored) fails safe —
-            # a rule author clearly meant to add a critical case here; silently ignoring it would
-            # be a fail-open. Absent key (not this rule's concern) is not an error.
-            if awk 'NR==1 && /^---$/{f=1;next} f && /^---$/{exit} f && /^escalation_critical:/{found=1} END{exit !found}' "$rf"; then
+        local -a pats=()
+        if [ -n "$raw" ]; then
+            IFS=',' read -ra pats <<< "$raw"
+        fi
+        local -a nonempty=()
+        for pat in "${pats[@]+"${pats[@]}"}"; do
+            pat="${pat#"${pat%%[![:space:]]*}"}"; pat="${pat%"${pat##*[![:space:]]}"}"
+            [ -n "$pat" ] && nonempty+=("$pat")
+        done
+        if [ "${#nonempty[@]}" -eq 0 ]; then
+            # SEC-4/SEC-13: escalation_critical: present but empty, or present with only empty
+            # entries (e.g. a bare "," list), fails safe — a rule author clearly meant to add a
+            # critical case here; silently ignoring it would be a fail-open. Absent key (not this
+            # rule's concern) is not an error. \r stripped first so CRLF rule files still parse.
+            if awk '{ gsub(/\r/, "") } NR==1 && /^---$/{f=1;next} f && /^---$/{exit} f && /^escalation_critical:/{found=1} END{exit !found}' "$rf"; then
                 echo "n1-rules: $(basename "$rf" .rule.md) has an empty escalation_critical: value; treating as critical (fail-safe)" >&2
                 echo "critical: rule $(basename "$rf" .rule.md) (empty escalation_critical)"; return 0
             fi
             continue
         fi
-        local -a pats=()
-        IFS=',' read -ra pats <<< "$raw"
-        for pat in "${pats[@]+"${pats[@]}"}"; do
-            pat="${pat#"${pat%%[![:space:]]*}"}"; pat="${pat%"${pat##*[![:space:]]}"}"
-            [ -n "$pat" ] || continue
+        for pat in "${nonempty[@]}"; do
             if printf '%s' "$text" | grep -qiF -- "$pat"; then
                 echo "critical: rule $(basename "$rf" .rule.md)"; return 0
             fi
