@@ -453,11 +453,6 @@ def main() -> int:
     record['usage_coverage'] = {'headless_coverage': 'unknown', 'discovery_status': 'hook-recorded'}
     record['root_usage'] = orch_totals
 
-    record["session_linkage"] = {
-        "session_id": envelope.get("session_id"),
-        "parent_id": None, "fork_of": None, "reused_from": None,
-    }
-
     output = out_dir / f"{args.run_id}.jsonl"
     temporary = out_dir / f".{args.run_id}.{os.getpid()}.tmp"
     temporary.write_text(json.dumps(record, separators=(",", ":")) + "\n", encoding="utf-8")
