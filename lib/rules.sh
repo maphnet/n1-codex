@@ -355,3 +355,35 @@ n1_deny_hook_deregister() {
         ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
     fi
 }
+
+n1_escalation_critical() {
+    # Usage: n1_escalation_critical <question.json> [rules_dir]
+    # N1-64: classifies a queue child's mirrored escalation (.question-<ticket>.json). Prints
+    # "critical: <why>" (exit 0) or "non-critical" (exit 1). Checked in order, first hit wins:
+    # unreadable/uncategorized question (fail safe); any category but "none" (a stop-list
+    # category such as security/architecture/public-api, or the release gate); hard-block words
+    # in the text; a project rule's `escalation_critical:` substring. Rules can only add.
+    local q="$1" rules_dir="${2:-$(n1_rules_dir)}" cat text rf pat
+    cat=$(jq -r '.category // ""' "$q" 2>/dev/null) || { echo "critical: unreadable question"; return 0; }
+    [ -n "$cat" ] || { echo "critical: no category"; return 0; }
+    [ "$cat" = none ] || { echo "critical: $cat"; return 0; }
+    text=$(jq -r '[.question, .rationale, (.options // [] | .[])] | map(tostring) | join(" ")' "$q" 2>/dev/null) \
+        || { echo "critical: unreadable question"; return 0; }
+    # ponytail: keyword match over-flags (e.g. "release notes"); fail-safe direction, tighten if relays get noisy.
+    if printf '%s' "$text" | grep -qiE 'security|architecture|public[ -]api|release'; then
+        echo "critical: hard-block keyword"; return 0
+    fi
+    while IFS= read -r rf; do
+        [ -z "$rf" ] && continue
+        local -a pats=()
+        IFS=',' read -ra pats <<< "$(n1_rule_field "$rf" escalation_critical)"
+        for pat in "${pats[@]+"${pats[@]}"}"; do
+            pat="${pat#"${pat%%[![:space:]]*}"}"; pat="${pat%"${pat##*[![:space:]]}"}"
+            [ -n "$pat" ] || continue
+            if printf '%s' "$text" | grep -qiF -- "$pat"; then
+                echo "critical: rule $(basename "$rf" .rule.md)"; return 0
+            fi
+        done
+    done < <(n1_rules_list "$rules_dir")
+    echo "non-critical"; return 1
+}
