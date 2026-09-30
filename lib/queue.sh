@@ -269,6 +269,46 @@ n1_queue_parked_rows() {
     done < <(n1_queue_pending_rows "$1" 'awaiting-human')
 }
 
+n1_queue_blocker_of() {
+    # Usage: n1_queue_blocker_of <queue.md> <row#> — N1-64: the ticket a held row waits on, from a
+    # Reason that starts "blocked_on <ID>" (intake writes it; later notes are appended after " · ").
+    n1_queue_row_reason "$1" "$2" | sed -n 's/^blocked_on \([A-Za-z0-9_-]*\).*/\1/p'
+}
+
+n1_queue_ticket_status() {
+    # Usage: n1_queue_ticket_status <queue.md> <ticket> — Status of the ticket's LAST Plan row
+    # (a defer-once retry appends a new row, so the last one is current).
+    awk -F'|' -v t="$2" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
+        $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { s = $8 } END { print s }' "$1"
+}
+
+n1_queue_held_sweep() {
+    # Usage: n1_queue_held_sweep <queue.md>
+    # N1-64: a held row whose blocker ended without a PR (failed/escalated/skip) or is not in the
+    # plan can never run: mark it skip. Prints how many held rows still wait (blocker pending,
+    # in progress, parked, held, or pr awaiting the orchestrator's merge). Blocker status is re-read
+    # per row, so a chain in plan order resolves in one call; the runner sweeps every idle tick,
+    # which catches a blocker listed after its dependent on the next tick.
+    local q="$1" num t b st n=0
+    while IFS=$'\t' read -r num t _ _ _ _; do
+        b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
+        case "$st" in
+            failed|escalated|skip|'') n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})" ;;
+            *) n=$((n + 1)) ;;
+        esac
+    done < <(n1_queue_pending_rows "$q" held)
+    printf '%s' "$n"
+}
+
+n1_queue_held_expire() {
+    # Usage: n1_queue_held_expire <queue.md> — N1-64: the runner's bounded wait ran out; every
+    # remaining held row is skipped (its blocker was never merged). It stays tagged for a later run.
+    local q="$1" num t
+    while IFS=$'\t' read -r num t _ _ _ _; do
+        n1_queue_row_status "$q" "$num" skip "blocked by $(n1_queue_blocker_of "$q" "$num") (not merged)"
+    done < <(n1_queue_pending_rows "$q" held)
+}
+
 n1_queue_already_run() {
     # Usage: n1_queue_already_run <overview.md>
     # Exit 0 and print the stamped queue_run_id when a previous queue run handled this

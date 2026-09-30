@@ -25,10 +25,10 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 
 `STALE=no`: go to § Launch.
 
-`STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending`, one row at a time, in this order (cheapest exclusion first, so a row headed for skip/exclude never pays for a later check on itself):
+`STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending` or `held`, one row at a time, in this order (cheapest exclusion first, so a row headed for skip/exclude never pays for a later check on itself):
 1. Call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket.
 2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary. Continue to the next row.
-3. **Blocker check (unconditional, every pending row that survived step 2):** follow intake.md § Blocker check for this ticket. Blocked -> `n1_queue_row_status "$QUEUE_FILE" <#> skip "blocked by <ID>"`, record in the change summary, continue to the next row.
+3. **Blocker check (unconditional, every pending row that survived step 2):** follow intake.md § Blocker check for this ticket. Blocked -> `n1_queue_row_status "$QUEUE_FILE" <#> skip "blocked by <ID>"`, record in the change summary, continue to the next row. Same-plan blocker (intake's held case) -> `n1_queue_row_status "$QUEUE_FILE" <#> held "blocked_on <ID>"` and keep going. A held row keeps Status `held` through step 7.
 4. **Before the duplicate check, read this row's current `## Decisions` values once (single read, reused through step 7 — `n1_queue_decisions_write_row` is a full-row replace, so every field it doesn't get must be carried forward from this read, never left blank):**
    ```bash
    source ~/.n1/preamble.sh
@@ -122,7 +122,8 @@ while IFS= read -r line || [ -n "$line" ]; do
     c() { printf '%s' "$line" | cut -f"$1"; }
     k=$(c 2)
     n1_queue_row_title "$QUEUE_FILE" "$(c 1)" "$(cat "$QUEUE_DIR/desc/$k.title")"
-    n1_queue_row_status "$QUEUE_FILE" "$(c 1)" pending "$(c 3)"
+    st=pending; case "$(c 3)" in "blocked_on "*) st=held ;; esac   # N1-64: same-plan blocker
+    n1_queue_row_status "$QUEUE_FILE" "$(c 1)" "$st" "$(c 3)"
     n1_queue_decisions_write_row "$QUEUE_FILE" "$k" "$(c 4)" "$(c 5)" "$(c 6)" \
         "$(n1_queue_content_hash "$QUEUE_DIR/desc/$k.title" "$QUEUE_DIR/desc/$k.txt")" "$(c 7-)"
 done < "$QUEUE_DIR/cells.tsv"

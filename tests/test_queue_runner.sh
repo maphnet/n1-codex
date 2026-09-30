@@ -1326,6 +1326,69 @@ test_auto_resolve() {
     rm -rf "$tmp"
 }
 
+# N1-64: held rows (same-plan blocker) — helpers and runner hold/expire.
+mk_held_plan() { # <file> <status-of-T-1>
+    cat > "$1" <<EOF
+---
+queue_id: q
+run_id: R1
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | /h | sonnet | $2 | |
+| 2 | T-2 | B | /r | /h | sonnet | held | blocked_on T-1 · tag match |
+| 3 | T-3 | C | /r | /h | sonnet | held | blocked_on T-2 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+}
+
+test_held_helpers() {
+    local tmp; tmp=$(mktemp -d)
+    mk_held_plan "$tmp/q.md" pr
+    assert_eq "held: blocker parsed" "T-1" "$(n1_queue_blocker_of "$tmp/q.md" 2)"
+    assert_eq "held: no blocker on plain row" "" "$(n1_queue_blocker_of "$tmp/q.md" 1)"
+    assert_eq "held: ticket status" "pr" "$(n1_queue_ticket_status "$tmp/q.md" T-1)"
+    assert_eq "held: not launchable" "" "$(n1_queue_pending_rows "$tmp/q.md" | cut -f2)"
+    assert_eq "held: blocker pr -> both still wait" "2" "$(n1_queue_held_sweep "$tmp/q.md")"
+    mk_held_plan "$tmp/q.md" failed
+    assert_eq "held: failed blocker -> chain skipped in plan order" "0" "$(n1_queue_held_sweep "$tmp/q.md")"
+    assert_eq "held: T-2 skipped" "skip" "$(plan_cell "$tmp/q.md" 2 8)"
+    assert_eq "held: T-2 reason" "blocked by T-1 (failed)" "$(plan_cell "$tmp/q.md" 2 9)"
+    assert_eq "held: nothing left for next sweep" "0" "$(n1_queue_held_sweep "$tmp/q.md")"
+    assert_eq "held: T-3 skipped" "blocked by T-2 (skip)" "$(plan_cell "$tmp/q.md" 3 9)"
+    mk_held_plan "$tmp/q.md" pr
+    n1_queue_held_expire "$tmp/q.md"
+    assert_eq "held: expire" "skip|blocked by T-1 (not merged)" "$(plan_cell "$tmp/q.md" 2 8)|$(plan_cell "$tmp/q.md" 2 9)"
+    rm -rf "$tmp"
+}
+
+test_bg_held_not_launched() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgh "T-A:working done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    assert_eq "bg-held: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-held: blocker pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-held: T-B never launched" "0" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
+    assert_eq "bg-held: expired to skip" "skip|blocked by T-A (not merged)" \
+        "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "bg-held: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    rm -rf "$tmp"
+}
+
+test_bg_held_blocker_failed() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgf "T-A:failed" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    assert_eq "bg-held-fail: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-held-fail: T-B skipped" "blocked by T-A (failed)" "$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "bg-held-fail: T-B never launched" "0" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
+    rm -rf "$tmp"
+}
+
 # --- NP-219: pending deploy -----------------------------------------------------
 test_child_status_deploy() {
     local tmp; tmp=$(mktemp -d)
@@ -1769,6 +1832,9 @@ test_child_status
 test_child_status_deploy
 test_bg_pr_without_url
 test_auto_resolve
+test_held_helpers
+test_bg_held_not_launched
+test_bg_held_blocker_failed
 test_row_status
 test_write_plan_cells
 test_pending_rows
