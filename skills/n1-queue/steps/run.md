@@ -198,7 +198,7 @@ n1_queue_auto_resolve "$N1_HOME" "<T>"
 
 On failure, relay the question to the user as in the unchanged path.
 
-**Merge to unblock (N1-64).** After every watch line, check whether the run is stalled on a finished blocker:
+**Merge to unblock (N1-64).** The watch itself re-checks the gate every poll and prints `<B> ready to merge-to-unblock` once the gate passes (not just on a new event — see `n1_queue_watch`). After every watch line, check whether the run is stalled on a finished blocker:
 
 ```bash
 source ~/.n1/preamble.sh

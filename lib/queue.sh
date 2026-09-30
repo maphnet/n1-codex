@@ -890,6 +890,10 @@ n1_queue_watch() {
     # ticket_finished / halted / queue_done
     # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
     # relaunch appends to the same file).
+    # Also re-checks n1_queue_merge_gate for every n1_queue_merge_candidates row on every poll
+    # (N1-64), not just on a new event: "<ticket> ready to merge-to-unblock" once per (ticket,
+    # head sha or MERGED), so a blocker that flips from WAIT to pass between events (CI finishing
+    # with no event of its own) is still surfaced.
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
     # identical command after a host timeout resumes with no gap and no replay. Without that
     # cursor it starts at line <from_line> (default: current end of file).
@@ -897,7 +901,7 @@ n1_queue_watch() {
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason qbody
+    local ev t out pr s reason qbody b h r sha marker last
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -913,6 +917,22 @@ n1_queue_watch() {
         # Liveness is sampled before reading, so events written just before the runner exits are relayed first.
         # ponytail: kill -0 can't tell a recycled pid from the runner; compare /proc start time if that bites.
         alive=0; kill -0 "$pid" 2>/dev/null && alive=1
+        # N1-64: a held row's blocker can go WAIT -> ready with no event (CI completing, or a
+        # merge-queue enqueue landing) between watch polls, so this re-checks the gate itself,
+        # every poll, independent of the event stream below. Deduped per (ticket, head sha or
+        # MERGED) via a small marker file, same pattern as the cursor above, so a gate that keeps
+        # passing (or a merge that already landed) isn't reprinted every poll.
+        while IFS=$'\t' read -r b h r; do
+            case "$b" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
+            out=$(n1_queue_merge_gate "$h" "$b" "$dir" "$r") || continue
+            sha="${out##*$'\t'}"
+            marker="$dir/.merge-ready-$b"
+            last=""; [ -f "$marker" ] && last=$(cat "$marker" 2>/dev/null)
+            if [ "$last" != "$sha" ]; then
+                printf 'n1-queue %s: %s ready to merge-to-unblock\n' "$q" "$b"
+                printf '%s\n' "$sha" > "$marker" 2>/dev/null
+            fi
+        done < <(n1_queue_merge_candidates "$dir/queue.md" 2>/dev/null)
         total=0; [ -f "$events" ] && total=$(wc -l < "$events"); total="${total//[[:space:]]/}"
         if [ "$total" -gt "$seen" ]; then
             while IFS=$'\x1f' read -r ev t out pr s reason; do
