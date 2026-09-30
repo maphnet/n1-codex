@@ -282,6 +282,14 @@ n1_queue_ticket_status() {
         $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { s = $8 } END { print s }' "$1"
 }
 
+n1_queue_ticket_home() {
+    # Usage: n1_queue_ticket_home <queue.md> <ticket> — N1 Home of the ticket's LAST Plan row
+    # (SEC-3/CR-3: a cross-repo queue's escalation classifier must also check this project's own
+    # rules, not just the orchestrating session's).
+    awk -F'|' -v t="$2" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
+        $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { h = $6 } END { print h }' "$1"
+}
+
 n1_queue_held_sweep() {
     # Usage: n1_queue_held_sweep <queue.md>
     # N1-64: a held row whose blocker ended without a PR (failed/escalated/skip) or is not in the
@@ -314,48 +322,108 @@ n1_queue_merge_candidates() {
     # N1-64 merge-to-unblock trigger, conditions 1-3: prints each ticket whose Plan Status is pr
     # (a real PR, N1-53) that at least one held row waits on, but only while no row is pending
     # or in-progress (the run cannot progress without it). Parked rows wait on the human and
-    # do not count as progress. Output: <ticket><TAB><blocker's N1 Home> (its last pr row), so
-    # cross-repo queues gate/finish against the blocker's own memory, not the session's.
+    # do not count as progress. Output: <ticket><TAB><blocker's N1 Home><TAB><blocker's Repo>
+    # (its last pr row), so cross-repo queues gate/finish against the blocker's own memory and
+    # repo, not the session's (SEC-1/CR-1: n1_queue_merge_gate needs the Repo to bind identity).
     local q="$1" num t b
     [ -z "$(n1_queue_pending_rows "$q" 'pending|in-progress')" ] || return 0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num")
         [ -n "$b" ] && [ "$(n1_queue_ticket_status "$q" "$b")" = pr ] || continue
-        n1_queue_pending_rows "$q" pr | awk -F'\t' -v b="$b" '$2 == b { h = $4 } END { printf "%s\t%s\n", b, h }'
+        n1_queue_pending_rows "$q" pr | awk -F'\t' -v b="$b" '$2 == b { h = $4; r = $3 } END { printf "%s\t%s\t%s\n", b, h, r }'
     done < <(n1_queue_pending_rows "$q" held) | sort -u
 }
 
+_n1_queue_repo_slug() {
+    # Usage: _n1_queue_repo_slug <repo-path> — lowercased "owner/repo" from that repo's origin
+    # remote, https or ssh form (SEC-1). Empty (and non-zero exit) when the repo/remote can't be read.
+    local repo="$1" url
+    url=$(git -C "$repo" remote get-url origin 2>/dev/null) || return 1
+    url="${url%.git}"
+    case "$url" in
+        *://*) url="${url#*://}"; url="${url#*/}" ;;
+        *:*) url="${url#*:}" ;;
+    esac
+    [ -n "$url" ] || return 1
+    printf '%s' "$url" | tr '[:upper:]' '[:lower:]'
+}
+
 n1_queue_merge_gate() {
-    # Usage: n1_queue_merge_gate <n1-home> <ticket> <queue-dir>
-    # N1-64 strict gate (condition 4) before the orchestrating session merges a blocking child PR:
-    # real GitHub PR URL, review PASS, no open escalation (step escalated or a pending .question
-    # file), GitHub mergeable, and every CI check green (no checks = not green).
+    # Usage: n1_queue_merge_gate <n1-home> <ticket> <queue-dir> <repo>
+    # N1-64 strict gate (condition 4) before the orchestrating session merges a blocking child PR.
+    # SEC-1 (CWE-345/441): a child-written overview.md pr_url is untrusted data — before anything
+    # else, incl. the MERGED short-circuit, bind it to the blocker row: the URL's owner/repo must
+    # be <repo>'s own origin remote, the PR's headRefName must be the ticket's own branch
+    # (overview.md `branch`, else the git.branchPattern+lowercased-ticket convention
+    # workspace-isolation.md uses), and baseRefName must be <repo>'s configured default branch.
+    # Then: real GitHub PR URL, review PASS, no open escalation (step escalated or a pending
+    # .question file), GitHub mergeable + a clean merge state (SEC-2: no TOCTOU merge queue/draft
+    # state), and every CI check green (no checks = not green).
     # Review PASS: review_fix_cycle absent/0 means review passed clean on the first try — fix.md,
     # which increments clean_passes, is only ever entered on a FAIL (skills/n1-start/steps/fix.md).
     # clean_passes alone can't distinguish "never needed a fix" from "still failing", so a fix
     # cycle is only required to have converged (clean_passes >= 1) when one was actually entered.
-    # Prints the PR URL (exit 0) or "gate: <reason>" (exit 1). Any gh error means not met, EXCEPT
-    # an already-merged PR (state MERGED): a human or an interrupted earlier tick can merge a
-    # blocker outside this gate, and a merged PR's own mergeable/CI fields are stale or UNKNOWN —
-    # checked first so that case doesn't strand held tickets behind a PR that is already in.
-    local home="$1" t="$2" dir="$3" ov url rfc cp js
+    # Prints "<PR URL><TAB><head commit sha>" (exit 0; SEC-2: the caller merges with
+    # `--match-head-commit <sha>` so a late-arriving commit can't slip past the checks above) or
+    # "gate: <reason>" (exit 1). Any gh error means not met, EXCEPT an already-merged PR (state
+    # MERGED): a human or an interrupted earlier tick can merge a blocker outside this gate, and
+    # a merged PR's own mergeable/CI fields are stale or UNKNOWN — checked after identity so that
+    # case doesn't strand held tickets behind a PR that is already in.
+    local home="$1" t="$2" dir="$3" repo="$4" ov url owner_repo remote_slug branch base rfc cp js oid
     case "$t" in ''|*[!A-Za-z0-9_-]*) echo "gate: invalid ticket"; return 1 ;; esac
     ov="$home/memory/$t/overview.md"
     url=$(n1_queue_child_pr_url "$ov")
-    [[ "$url" =~ ^https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+$ ]] || { echo "gate: no real PR URL"; return 1; }
+    [[ "$url" =~ ^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/pull/[0-9]+$ ]] || { echo "gate: no real PR URL"; return 1; }
+    owner_repo=$(printf '%s/%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]')
+    remote_slug=$(_n1_queue_repo_slug "$repo")
+    [ -n "$remote_slug" ] && [ "$owner_repo" = "$remote_slug" ] \
+        || { echo "gate: PR repo does not match blocker's repo"; return 1; }
+    js=$(gh pr view "$url" --json headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,state 2>/dev/null) \
+        || { echo "gate: gh pr view failed"; return 1; }
+    branch=$(n1_read_frontmatter "$ov" branch)
+    if [ -z "$branch" ]; then
+        branch="$(N1_HOME="$home" n1_config_val '.git.branchPattern')$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')"
+    fi
+    [ "$(printf '%s' "$js" | jq -r '.headRefName // ""' 2>/dev/null)" = "$branch" ] \
+        || { echo "gate: PR branch does not match ticket branch"; return 1; }
+    base=$(N1_HOME="$home" n1_config_val '.git.defaultBranch'); base="${base:-main}"
+    [ "$(printf '%s' "$js" | jq -r '.baseRefName // ""' 2>/dev/null)" = "$base" ] \
+        || { echo "gate: PR base is not the default branch"; return 1; }
     rfc=$(n1_read_frontmatter "$ov" review_fix_cycle); [[ "$rfc" =~ ^[0-9]+$ ]] || rfc=0
     cp=$(n1_read_frontmatter "$ov" clean_passes); [[ "$cp" =~ ^[0-9]+$ ]] || cp=0
     [ "$rfc" -eq 0 ] || [ "$cp" -ge 1 ] || { echo "gate: review not PASS"; return 1; }
     if [ "$(n1_read_frontmatter "$ov" step)" = escalated ] || [ -e "$dir/.question-$t.json" ]; then
         echo "gate: open escalation"; return 1
     fi
-    js=$(gh pr view "$url" --json mergeable,statusCheckRollup,state 2>/dev/null) || { echo "gate: gh pr view failed"; return 1; }
-    if [ "$(printf '%s' "$js" | jq -r '.state // ""' 2>/dev/null)" = MERGED ]; then printf '%s' "$url"; return 0; fi
+    oid=$(printf '%s' "$js" | jq -r '.headRefOid // ""' 2>/dev/null)
+    if [ "$(printf '%s' "$js" | jq -r '.state // ""' 2>/dev/null)" = MERGED ]; then printf '%s\t%s' "$url" "$oid"; return 0; fi
     [ "$(printf '%s' "$js" | jq -r '.mergeable // ""' 2>/dev/null)" = MERGEABLE ] || { echo "gate: not mergeable"; return 1; }
+    [ "$(printf '%s' "$js" | jq -r '.mergeStateStatus // ""' 2>/dev/null)" = CLEAN ] || { echo "gate: not clean"; return 1; }
     printf '%s' "$js" | jq -e '(.statusCheckRollup // []) as $c | ($c | length) > 0
         and ($c | all((.conclusion // .state // "") as $s | $s == "SUCCESS" or $s == "NEUTRAL" or $s == "SKIPPED"))' >/dev/null 2>&1 \
         || { echo "gate: CI not green"; return 1; }
-    printf '%s' "$url"
+    printf '%s\t%s' "$url" "$oid"
+}
+
+n1_queue_sync_default() {
+    # Usage: n1_queue_sync_default <repo>
+    # N1-64 (CR-1): after the orchestrating session merges a blocking child's PR, fast-forward
+    # the blocker repo's LOCAL default branch before releasing held rows. Children branch from
+    # the local default when it is clean (workspace-isolation.md § Ensure Branch: CURRENT==DEFAULT
+    # -> `git checkout -b <TARGET>`), so a stale local default hands a freshly-released ticket a
+    # branch-point missing the commit that was just merged. Reads git.defaultBranch from the
+    # repo's own N1 Home (caller sets N1_HOME to the blocker's home); falls back to "main".
+    # ponytail: single fetch+ff-only, no retry/backoff; add one if flaky CI networks make this noisy.
+    local repo="$1" d cur
+    [ -d "$repo" ] || { echo "n1-queue: sync: no such repo $repo" >&2; return 1; }
+    d=$(n1_config_val '.git.defaultBranch'); d="${d:-main}"
+    git -C "$repo" fetch origin "$d" >&2 || { echo "n1-queue: sync: fetch origin $d failed in $repo" >&2; return 1; }
+    cur=$(git -C "$repo" branch --show-current 2>/dev/null)
+    if [ "$cur" = "$d" ]; then
+        git -C "$repo" merge --ff-only "origin/$d" >&2 || { echo "n1-queue: sync: ff-only merge of $d failed in $repo" >&2; return 1; }
+    else
+        git -C "$repo" fetch origin "$d:$d" >&2 || { echo "n1-queue: sync: fetch origin $d:$d failed in $repo" >&2; return 1; }
+    fi
 }
 
 n1_queue_unblock() {
