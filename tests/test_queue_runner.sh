@@ -1303,6 +1303,29 @@ test_bg_pr_without_url() {
     rm -rf "$tmp"
 }
 
+# N1-64: orchestrator self-answer is delivered through n1_queue_answer and logged as auto_resolved.
+test_auto_resolve() {
+    local tmp; tmp=$(mktemp -d)
+    mkdir -p "$tmp/queue/q1"
+    printf -- '---\nqueue_id: q1\nrun_id: R9\n---\n' > "$tmp/queue/q1/queue.md"
+    echo '{}' > "$tmp/queue/q1/.question-T-1.json"
+    printf 'Use the hand-off file' > "$tmp/queue/.answer-T-1.txt"
+    n1_queue_answer() { return 0; }
+    n1_queue_auto_resolve "$tmp" T-1 >/dev/null 2>&1 || true
+    assert_eq "auto-resolve: event logged" "auto_resolved,T-1,Use the hand-off file,R9,q1" \
+        "$(jq -r 'select(.event=="auto_resolved") | [.event,.ticket,.reason,.run_id,.queue] | join(",")' "$tmp/queue/q1/events.jsonl")"
+    rm -f "$tmp/queue/q1/events.jsonl"
+    printf 'x' > "$tmp/queue/.answer-T-1.txt"
+    n1_queue_answer() { return 1; }
+    local rc=0; n1_queue_auto_resolve "$tmp" T-1 >/dev/null 2>&1 || rc=$?
+    assert_eq "auto-resolve: delivery failure returns 1" "1" "$rc"
+    assert_eq "auto-resolve: no event on failure" "no" "$([ -s "$tmp/queue/q1/events.jsonl" ] && echo yes || echo no)"
+    assert_eq "auto-resolve: bad ticket id rejected" "1" "$(n1_queue_auto_resolve "$tmp" 'T 1;x' >/dev/null 2>&1 && echo 0 || echo 1)"
+    assert_eq "auto-resolve: default off" "false" "$(N1_HOME="$tmp" n1_queue_val autoResolveNonCritical)"
+    source "$REPO_ROOT/lib/queue.sh"   # restore the real n1_queue_answer
+    rm -rf "$tmp"
+}
+
 # --- NP-219: pending deploy -----------------------------------------------------
 test_child_status_deploy() {
     local tmp; tmp=$(mktemp -d)
@@ -1745,6 +1768,7 @@ test_plan_wiring
 test_child_status
 test_child_status_deploy
 test_bg_pr_without_url
+test_auto_resolve
 test_row_status
 test_write_plan_cells
 test_pending_rows

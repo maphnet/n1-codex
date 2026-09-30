@@ -613,6 +613,23 @@ n1_queue_answer() {
     echo "n1-queue: answer delivered to $t (session $sid), resuming."
 }
 
+n1_queue_auto_resolve() {
+    # Usage: n1_queue_auto_resolve <n1-home> <ticket>
+    # N1-64: the orchestrating session's self-answer to a non-critical escalation
+    # (queue.autoResolveNonCritical=true, n1_escalation_critical said non-critical). Delivers the
+    # answer already file-written to <n1-home>/queue/.answer-<ticket>.txt through n1_queue_answer
+    # (same stop/resume path as --answer), then logs auto_resolved so every self-answer is auditable.
+    local home="$1" t="$2" qf dir ans
+    case "$t" in ''|*[!A-Za-z0-9_-]*) echo "n1-queue: invalid ticket id" >&2; return 1 ;; esac
+    qf=$(ls -t "$home"/queue/*/.question-"$t".json 2>/dev/null | head -1)
+    [ -n "$qf" ] || { echo "n1-queue: no pending question for $t" >&2; return 1; }
+    dir="${qf%/*}"
+    ans=$(cat "$home/queue/.answer-$t.txt" 2>/dev/null)
+    n1_queue_answer "$home" "$t" || return 1
+    n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$dir/queue.md" queue_id)" \
+        "$(n1_read_frontmatter "$dir/queue.md" run_id)" auto_resolved ticket="$t" reason="${ans:0:120}"
+}
+
 n1_queue_relay_active() {
     # Usage: n1_queue_relay_active <queue-dir> <ticket> — exit 0 while n1_queue_answer's relay
     # marker is under 2 minutes old (N1-55); older markers are ignored.
@@ -688,7 +705,8 @@ n1_queue_digest() {
 n1_queue_watch() {
     # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
     # Session-side relay for one queue run. Every queue.pollSeconds, prints new escalated (full
-    # mirrored question when present) / answer_delivered / ticket_finished / halted / queue_done
+    # mirrored question when present) / answer_delivered / auto_resolved / merged_to_unblock /
+    # ticket_finished / halted / queue_done
     # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
     # relaunch appends to the same file).
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
@@ -738,6 +756,10 @@ n1_queue_watch() {
                         fi ;;
                     answer_delivered)
                         printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t" ;;
+                    auto_resolved)
+                        printf 'n1-queue %s: %s auto-resolved (non-critical): %s\n' "$q" "$t" "$reason" ;;
+                    merged_to_unblock)
+                        printf 'n1-queue %s: %s merged to unblock held tickets%s\n' "$q" "$t" "${pr:+ $pr}" ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
                     halted|queue_done)
@@ -747,7 +769,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "auto_resolved" or .event == "merged_to_unblock" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
             seen="$total"
