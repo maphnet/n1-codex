@@ -172,5 +172,3 @@ CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"
    grep -qF '.codex/agents/n1-*.toml' .gitignore 2>/dev/null || { [ -s .gitignore ] && [ -n "$(tail -c1 .gitignore)" ] && echo >> .gitignore; printf '# N1 generated Codex personas\n.codex/agents/n1-*.toml\n' >> .gitignore; }
    ```
    Log: "Added `.codex/agents/n1-*.toml` to .gitignore." (or "already ignored").
-
-4. **Default subagent model.** Read `DEF_MODEL=$(n1_codex_default default_subagent_model)` and `DEF_EFFORT=$(n1_codex_default default_subagent_reasoning_effort)`. If `DEF_MODEL` is empty, tell the user: "Codex has no `[agents] default_subagent_model`; known N1 personas still resolve through the shared role policy, while unknown personas inherit the session model. Set a default in ~/.codex/config.toml if you dispatch unknown personas." Continue to **Agent Model Configuration**, which on Codex is always offered (not only on request).

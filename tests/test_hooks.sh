@@ -55,26 +55,16 @@ rm -rf "$MEM3"
 # --- enforce-agent-policy (both hosts) -------------------------------------
 FX="$REPO_ROOT/tests/fixtures/hooks"
 cat > "$N1_HOME/config.json" <<'EOF'
-{"models":{"developer":{"claude-code":"opus","codex":"gpt-6-astra"}}}
+{"models":{"developer":{"claude-code":"opus"}}}
 EOF
 POLICY="$REPO_ROOT/hooks/enforce-agent-policy.sh"
 OUT=$(N1_HOST=claude-code bash "$POLICY" < "$FX/claude/pretooluse-spawn.json")
 assert_eq "claude spawn override model" "opus" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.model)"
-OUT=$(N1_HOST=codex bash "$POLICY" < "$FX/codex/pretooluse-spawn.json")
-assert_eq "codex resolver-selected model passes through Astra config" "" "$OUT"
-case "$OUT" in *gpt-6-astra*) assert_eq "codex hook never injects Astra" absent "$OUT";; *) assert_eq "codex hook never injects Astra" absent absent;; esac
 set +e
 N1_HOST=claude-code bash "$POLICY" < "$FX/claude/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
 set -e
 assert_eq "claude persona denial exit 2" "2" "$RC"
 assert_eq "claude persona denial reason" "N1: persona code-reviewer may not use tool Edit (allowed: Glob, Grep, Read)" "$(cat "$T/err")"
-set +e
-N1_HOST=codex bash "$POLICY" < "$FX/codex/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
-set -e
-assert_eq "codex persona denial exit 2" "2" "$RC"
-assert_eq "codex apply_patch denied for read-only persona" "N1: persona code-reviewer may not use tool apply_patch (allowed: Glob, Grep, Read)" "$(cat "$T/err")"
-OUT=$(N1_HOST=codex bash "$POLICY" < "$FX/codex/pretooluse-persona-allowed.json"); RC=$?
-assert_eq "codex exec_command allowed for read-only persona" "0:" "$RC:$OUT"
 OUT=$(N1_HOST=claude-code bash "$POLICY" < "$FX/claude/pretooluse-persona-allowed.json"); RC=$?
 assert_eq "claude Grep allowed for read-only persona" "0:" "$RC:$OUT"
 OUT=$(echo '{"tool_name":"Read","agent_type":"general-purpose","tool_input":{}}' | N1_HOST=claude-code bash "$POLICY"); RC=$?
@@ -90,11 +80,7 @@ git -C "$GR" worktree add -q "$T/wt" feature
 WT="$T/wt"
 gate() { # gate <host> <queue-run-id> <cwd> <command> -> exit code of the hook
     local payload rc
-    if [ "$1" = codex ]; then
-        payload=$(jq -cn --arg c "$4" --arg d "$3" '{session_id:"s",cwd:$d,hook_event_name:"PreToolUse",tool_name:"exec_command",tool_input:{cmd:$c}}')
-    else
-        payload=$(jq -cn --arg c "$4" --arg d "$3" '{session_id:"s",cwd:$d,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}')
-    fi
+    payload=$(jq -cn --arg c "$4" --arg d "$3" '{session_id:"s",cwd:$d,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}')
     set +e
     printf '%s' "$payload" | N1_HOST="$1" N1_QUEUE_RUN_ID="$2" bash "$POLICY" >/dev/null 2>"$T/gate.err"; rc=$?
     set -e
@@ -129,14 +115,9 @@ assert_eq "queue: gh --repo global flag view allowed" 0 "$(gate claude-code RUN1
 assert_eq "queue: gh -R attached flag merge denied"   2 "$(gate claude-code RUN1 "$WT" 'gh -Rowner/repo pr merge 123')"
 assert_eq "queue: gh --repo= attached flag merge denied" 2 "$(gate claude-code RUN1 "$WT" 'gh --repo=owner/repo pr merge 123')"
 assert_eq "queue: gh -R attached flag view allowed"   0 "$(gate claude-code RUN1 "$WT" 'gh -Rowner/repo pr view 123')"
-assert_eq "codex queue: gh pr merge denied"         2 "$(gate codex RUN1 "$WT" 'gh pr merge 12 --squash')"
-assert_eq "codex queue: bash -lc nested merge denied" 2 "$(gate codex RUN1 "$WT" "bash -lc 'cd x; gh pr merge 12'")"
-assert_eq "codex queue: push to main denied"        2 "$(gate codex RUN1 "$WT" 'git push origin feature:main')"
 assert_eq "interactive: hook does not gate merges"  0 "$(gate claude-code "" "$GR" 'gh pr merge 12 --squash')"
-assert_eq "interactive codex: hook does not gate"   0 "$(gate codex "" "$GR" 'git push origin HEAD:main')"
 echo '{"queue":{"mergeOnFinish":true}}' > "$N1_HOME/config.json"
 assert_eq "queue merge on: gh pr merge allowed"     0 "$(gate claude-code RUN1 "$WT" 'gh pr merge 12 --squash')"
-assert_eq "queue merge on: codex push main allowed" 0 "$(gate codex RUN1 "$GR" 'git push origin main')"
 echo '{' > "$N1_HOME/config.json"
 assert_eq "queue: broken config fails closed"       2 "$(gate claude-code RUN1 "$WT" 'gh pr merge 12')"
 echo '{"git":{"defaultBranch":"main"}}' > "$N1_HOME/config.json"
@@ -205,7 +186,6 @@ CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
 case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent schema"*"agent_type only if supported"*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
 case "$CTX" in *"that is their explicit request to commit, push the feature branch, and create the PR"*"does not authorize merge, release, or pushing the default branch"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
-assert_eq "codex persona TOMLs generated in cwd" "$(grep -l '^name:' "$REPO_ROOT"/agents/*.md | wc -l | tr -d ' ')" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
 {"ticketId":"T-30","runId":"n1-run-c","worktreePath":null,"branch":"T-30"}

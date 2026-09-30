@@ -209,15 +209,14 @@ When an old `.n1/n1.config.json` is detected:
       rm -rf .n1/memory .n1/n1.config.json 2>/dev/null || true
       ```
       Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
-   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs). Run only when `HOST` is `claude-code`; skip entries whose value is an object (host-keyed).
+   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs), and drop any leftover non-string entry (legacy host-keyed object from a pre-4.0 config).
       ```bash
       source ~/.n1/preamble.sh
-      [ "$(n1_host)" = "claude-code" ] || exit 0
       CFG="$HOME/.n1/$PROJECT_NAME/config.json"
+      jq '.models |= with_entries(select(.value|type=="string"))' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
       for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
         def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
         cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
-        [ "$(printf '%s' "$cur" | cut -c1)" = "{" ] && continue
         if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
           jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
           echo "pruned models.$a=$cur (equals frontmatter default)"

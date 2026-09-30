@@ -7,7 +7,6 @@ Show summary:
 N1 is ready.
 
 State directory: ~/.n1/<project-name>/
-Host: claude-code / codex (personas: .codex/agents/n1-*.toml, hooks trusted)
 Worktree mode: worktree
 Worktree setup: <command or "none">
 Worktree cleanup: after-merge
@@ -36,5 +35,5 @@ Next: Use /n1:n1-start <ticket-or-description> to begin working on a task.
 
 If `tracker.mcp` is not null, append after the summary:
 ```
-To activate tracker routing, reload the session: type /clear or restart Claude Code (on Codex: start a new session).
+To activate tracker routing, reload the session: type /clear or restart Claude Code.
 ```

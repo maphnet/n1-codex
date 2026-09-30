@@ -34,7 +34,6 @@ LINES_CHANGED=${LINES_CHANGED:-0}
 ALL_LOW_RISK=$(n1_classify_all_low_risk "$CHANGED")
 SKIP_DOC_CONFIG=$(n1_review_skip_doc_config)
 NARROW_THRESHOLD=$(n1_review_narrow_threshold)
-[ "$(n1_host)" = "codex" ] && NARROW_THRESHOLD=$(n1_review_narrow_threshold_codex)
 if [ "$DOC_CONFIG_ONLY" = "true" ] && [ "$SKIP_DOC_CONFIG" = "true" ]; then
   REVIEW_TIER="SKIP"
 elif [ "$LINES_CHANGED" -le "$NARROW_THRESHOLD" ] && [ "$SECURITY_HINT" != "true" ] && [ "$ALL_LOW_RISK" = "true" ]; then

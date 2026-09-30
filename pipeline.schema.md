@@ -10,7 +10,7 @@ bounds. `docs/` is gitignored, so this schema lives beside the data file.
 | Field | Type | Description |
 |-------|------|-------------|
 | `version` | int | Schema version. |
-| `model_policy` | object | Host mappings, Codex effort floor, and exceptional-model eligibility used by model resolution. |
+| `model_policy` | object | The model-role escalation order used by model resolution. |
 | `downgrade_triggers` | object | Signal conditions that downgrade an agent's model tier (`<agent>:<step>` → `{condition, tier}`). |
 | `escalation_triggers` | object | Signal conditions that escalate an agent's model tier (`<agent>:<step>` → `{condition, tier}`). |
 | `types` | object | Pipeline type registry: per-type step sequence, detection rules, and optional `step_overrides`. |
@@ -22,12 +22,9 @@ bounds. `docs/` is gitignored, so this schema lives beside the data file.
 
 ## `model_policy`
 
-`model_policy` keeps model roles neutral until host translation. `host_mappings` maps the
-`opus`, `sonnet`, and `haiku` roles for each host; Codex resolves them to
-`gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`. `codex_effort` defines the accepted
-order and a `medium` minimum. `exceptional_models.gpt-6-astra` is opt-in only and declares
-the canonical contexts a caller must verify before an explicit Astra override is retained.
-Dispatchers use `n1_resolve_agent` to receive the final `model<TAB>effort` pair.
+`model_policy.role_order` lists the `haiku`, `sonnet`, `opus` model roles in escalation order.
+Dispatchers use `n1_resolve_agent` to receive the final `model<TAB>effort` pair (effort is
+always empty; the column is kept for output-shape stability).
 
 ## `steps[]`
 
