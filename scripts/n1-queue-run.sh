@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N1 queue runner — sequential batch executor for n1-queue.
+# N1 queue runner — sequential batch executor for n1-queue (Claude Code background sessions).
 # Usage: n1-queue-run.sh <queue.md>
 set -uo pipefail
 
@@ -12,12 +12,6 @@ source "$N1_ROOT/lib/queue.sh"
 
 QUEUE="$1"
 [ -f "$QUEUE" ] || { echo "queue file not found: $QUEUE" >&2; exit 1; }
-
-# --- Host --------------------------------------------------------------------
-# Fixed at queue creation (run.md). CLAUDE_PLUGIN_ROOT is forced above for path
-# resolution, so auto-detection here would report claude-code on both hosts.
-QUEUE_HOST=$(n1_read_frontmatter "$QUEUE" host)
-[ -z "$QUEUE_HOST" ] || export N1_HOST="$QUEUE_HOST"
 
 # --- Run ID ------------------------------------------------------------------
 RUN_ID=$(n1_read_frontmatter "$QUEUE" run_id)
@@ -198,46 +192,6 @@ finalize() {
     echo "[$NUM] $TICKET -> $OUTCOME $PR_URL"
 }
 
-# run_sync — one synchronous headless child at a time (Codex; stub-driven tests).
-run_sync() {
-    local ROW NUM TICKET REPO N1H MODEL STARTED LOG_DIR LOG CMD EXIT OUTCOME REASON
-    while true; do
-        # Re-read pending rows each iteration (defer-once may have appended rows)
-        ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
-        [ -n "$ROW" ] || break
-        IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
-
-        # Write-ahead: mark in-progress; Runs section is always last
-        n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
-        # Re-queued ticket: forget the previous run's tag release (NP-199).
-        n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
-        # NP-219: a re-queued ticket must not inherit a previous run's pending deploy.
-        if n1_queue_deploy_pending "$N1H" "$TICKET"; then n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" deploy_pending false || true; fi
-        STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
-        STARTED_AT[NUM]=$(date +%s)
-        ev ticket_started ticket="$TICKET"
-
-        LOG_DIR="$N1H/queue/$QUEUE_ID/logs"
-        mkdir -p "$LOG_DIR"
-        LOG="$LOG_DIR/${TICKET}.${RUN_ID}.log"
-
-        CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "$LOG")
-        # Child command already redirects its own output into $LOG; append so wrapper errors (cd failure) land there too.
-        timeout -k 30 "$TIMEOUT_SECS" bash -c "$CMD" >>"$LOG" 2>&1
-        EXIT=$?
-
-        OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" "$EXIT")
-        # Still "running" after exit, or timeout -> failed
-        [ "$OUTCOME" = "running" ] && OUTCOME="failed"
-        REASON=""
-        case "$EXIT" in 124|137) OUTCOME="failed"; REASON="timeout" ;; esac
-        [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="child-exit-$EXIT"
-
-        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" "$EXIT" "$REASON"
-    done
-}
-
 # launch_bg <pending-row> — start the row's background session. A launch refused for the
 # bypass-permissions disclaimer halts the queue (every later launch would fail the same way).
 launch_bg() {
@@ -390,12 +344,7 @@ run_bg() {
     done
 }
 
-# Claude Code children run as background sessions; Codex (and stub-driven tests) stay synchronous.
-if [ "$(n1_host)" = "claude-code" ] && [ -z "${N1_QUEUE_CHILD_STUB:-}" ]; then
-    run_bg
-else
-    run_sync
-fi
+run_bg
 
 # --- Done --------------------------------------------------------------------
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }

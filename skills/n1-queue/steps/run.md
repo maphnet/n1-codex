@@ -151,7 +151,6 @@ source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
 QUEUE_FILE="$QUEUE_DIR/queue.md"
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
-n1_write_frontmatter "$QUEUE_FILE" host "$(n1_host)"
 n1_write_frontmatter "$QUEUE_FILE" run_id "$RUN_ID"
 n1_write_frontmatter "$QUEUE_FILE" started "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 n1_write_frontmatter "$QUEUE_FILE" owner_session "$(n1_session_id)"
