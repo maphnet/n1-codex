@@ -52,9 +52,7 @@ cat > "$TELEM_DIR/raw/agents/$RUN_ID.jsonl" <<AGENTS
 AGENTS
 
 # --- Run the merge ---
-export N1_HOST="claude-code"
 bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID" "$TELEM_DIR"
-unset N1_HOST
 
 OUT="$TELEM_DIR/runs/$RUN_ID.jsonl"
 
@@ -104,9 +102,7 @@ assert_eq "session_transcript_path populated from derivation" "$SESS_DIR.jsonl" 
 
 # ==== Test 3: Claude run still produces v4 with host=claude-code ====
 # Re-run test 1 data with forced Claude host to verify v4 backward compat
-export N1_HOST="claude-code"
 bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID" "$TELEM_DIR"
-unset N1_HOST
 
 SCHEMA_V3=$(jq '.schema_version' "$OUT")
 assert_eq "Claude: schema_version is 5" "5" "$SCHEMA_V3"
@@ -138,9 +134,7 @@ STEPS5
 
 : > "$TELEM_DIR5/raw/agents/$RUN_ID5.jsonl"
 
-export N1_HOST="claude-code"
 bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID5" "$TELEM_DIR5"
-unset N1_HOST
 
 OUT5="$TELEM_DIR5/runs/$RUN_ID5.jsonl"
 FINAL_OUTCOME5=$(jq -r '.final_outcome' "$OUT5")

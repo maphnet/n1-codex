@@ -19,9 +19,9 @@ else
 fi
 
 # Mechanism check: the exact isolation snippet used in qa.md strips ambient N1 vars.
-export N1_RUN_ID="run-abc" N1_HOST="claude" ID="NP-238"
-OUT=$(env -i HOME="$HOME" PATH="$PATH" bash -c 'echo "${N1_RUN_ID:-}${N1_HOST:-}${ID:-}"')
-assert_eq "isolated shell sees no ambient N1_RUN_ID/N1_HOST/ID" "" "$OUT"
+export N1_RUN_ID="run-abc" N1_SESSION_ID="sess-1" ID="NP-238"
+OUT=$(env -i HOME="$HOME" PATH="$PATH" bash -c 'echo "${N1_RUN_ID:-}${N1_SESSION_ID:-}${ID:-}"')
+assert_eq "isolated shell sees no ambient N1_RUN_ID/N1_SESSION_ID/ID" "" "$OUT"
 
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

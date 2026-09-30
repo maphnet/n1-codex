@@ -10,7 +10,7 @@ INPUT=$(cat)
 TRIGGER=$(printf '%s' "$INPUT" | n1_hook_field source)
 HOOK_CWD=$(printf '%s' "$INPUT" | n1_hook_field cwd)
 N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
-export N1_SESSION_ID="${N1_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+export N1_SESSION_ID
 N1_TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | n1_hook_field transcript_path)
 export N1_TRANSCRIPT_PATH
 
@@ -57,7 +57,7 @@ if [ -n "$SESSION_FILE" ]; then
 fi
 SHIM="$(dirname "$HOST_FILE")/preamble.sh"
 SHIM_TMP="${SHIM}.$$.tmp"
-printf 'source %q/"${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:?N1: no session id in env; restart the session}}}.preamble.sh"\n' "$SESSIONS_DIR" \
+printf 'source %q/"${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:?N1: no session id in env; restart the session}}.preamble.sh"\n' "$SESSIONS_DIR" \
     > "$SHIM_TMP" 2>/dev/null && mv -f "$SHIM_TMP" "$SHIM" 2>/dev/null || rm -f "$SHIM_TMP" 2>/dev/null || true
 
 HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
@@ -70,7 +70,7 @@ HOST ROUTING (authoritative for how N1 skills reach Claude Code):
 - Load the tool if deferred: ToolSearch with select:<tool>.
 - Invoke skill <x>: Skill tool with n1:<x>.
 - <N1_ROOT> in skill text means the N1 PLUGIN ROOT above.
-N1 RUN IDENTITY: export N1_HOST=claude-code; export N1_SESSION_ID=${N1_SESSION_ID}. Carry these values into each helper shell. Session facts: ${SESSION_FILE:-unavailable}.
+N1 RUN IDENTITY: export N1_SESSION_ID=${N1_SESSION_ID}. Carry it into each helper shell. Session facts: ${SESSION_FILE:-unavailable}.
 COMMIT ATTRIBUTION: The harness attribution reminder (e.g. a Co-Authored-By trailer) yields to user instructions (any CLAUDE.md, global or project, or memory rule). If they forbid or change it, never pass it into a persona prompt and never apply it to your own commits."
 
 CONFIG_FILE=$(n1_config_file)

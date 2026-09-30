@@ -16,11 +16,11 @@ n1_run_begin() {
         [ "$host" != unknown ] || host=$(n1_hook_field host < "$facts")
         [ -n "$transcript" ] || transcript=$(n1_hook_field transcript_path < "$facts")
     fi
-    export N1_HOST="${host:-unknown}" N1_SESSION_ID="$session"
+    export N1_SESSION_ID="$session"
     N1_VERSION=$(n1_plugin_version)
     N1_RUN_ID="$(date -u +n1-run-%Y%m%dT%H%M%SZ)-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
     export N1_RUN_ID N1_VERSION
-    python3 - "$tdir" "$N1_RUN_ID" "$N1_VERSION" "$ticket" "$N1_HOST" "$session" "$transcript" <<'PY'
+    python3 - "$tdir" "$N1_RUN_ID" "$N1_VERSION" "$ticket" "$host" "$session" "$transcript" <<'PY'
 import json, os, pathlib, sys
 from datetime import datetime, timezone
 tdir = pathlib.Path(sys.argv[1])

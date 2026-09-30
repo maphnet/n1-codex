@@ -160,7 +160,7 @@ test_release_cmd() {
     local out
     out=$(N1_QUEUE_RELEASE_STUB=/tmp/release-stub.sh n1_queue_release_cmd n1-auto /r /tmp/log)
     assert_eq "release_cmd: stub hook" '"/tmp/release-stub.sh" "n1-auto"' "$out"
-    out=$(unset N1_QUEUE_RELEASE_STUB; N1_HOST=claude-code n1_queue_release_cmd n1-auto /r /tmp/log)
+    out=$(unset N1_QUEUE_RELEASE_STUB; n1_queue_release_cmd n1-auto /r /tmp/log)
     assert_eq "release_cmd: claude real command shape" "yes" \
         "$(case "$out" in *'claude -p '*n1-queue*--status*n1-auto*) echo yes ;; *) echo "no: $out" ;; esac)"
 }
@@ -323,15 +323,15 @@ test_bg_helpers() {
     assert_eq "bgstate: non-hex sid -> failed" "failed" "$(n1_queue_bg_state "$j" zzzzzzzz)"
 
     local cc
-    cc=$(unset N1_STORY_PLUGIN_DIR; N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    cc=$(unset N1_STORY_PLUGIN_DIR; n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
     assert_eq "child_cmd: claude-code bg launch" "yes" "$(case "$cc" in "cd /r && claude --bg --name n1-q-T-1-1 --model sonnet --permission-mode bypassPermissions --settings "*bgIsolation*"/n1:n1-start\ T-1"*) echo yes ;; *) echo "no: $cc" ;; esac)"
     assert_eq "child_cmd: claude-code has N1_UNATTENDED=ask" "yes" \
         "$(case "$cc" in *'N1_UNATTENDED'*'ask'*) echo yes ;; *) echo no ;; esac)"
 
-    cc=$(unset N1_STORY_PLUGIN_DIR; N1_QUEUE_TAG=n1-auto N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    cc=$(unset N1_STORY_PLUGIN_DIR; N1_QUEUE_TAG=n1-auto n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
     assert_eq "child_cmd: claude-code forwards N1_QUEUE_TAG" "yes" \
         "$(case "$cc" in *'N1_QUEUE_TAG'*'n1-auto'*) echo yes ;; *) echo "no: $cc" ;; esac)"
-    cc=$(unset N1_STORY_PLUGIN_DIR; N1_QUEUE_DIR=/q/dir N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    cc=$(unset N1_STORY_PLUGIN_DIR; N1_QUEUE_DIR=/q/dir n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
     assert_eq "child_cmd: claude-code forwards N1_QUEUE_DIR" "yes" \
         "$(case "$cc" in *'N1_QUEUE_DIR'*'/q/dir'*) echo yes ;; *) echo "no: $cc" ;; esac)"
 
