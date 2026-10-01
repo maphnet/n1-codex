@@ -126,7 +126,7 @@ Skipped: N (resolved or outdated)
 
 ## Integration
 
-**Standalone only:** `/n1:n1-review-response` or `/n1:n1-review-response #123`
+**Standalone only:** `n1-codex:n1-review-response` or `n1-codex:n1-review-response #123`
 
 **Invokes:**
 - n1 agent: **developer** — applies fixes for ACTIONABLE comments (Step 6a, only when ACTIONABLE comments exist)

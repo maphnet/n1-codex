@@ -39,7 +39,7 @@ Call `mcp__plugin_atlassian_atlassian__getVisibleJiraProjects` — this simultan
 - **Failure (tool not found or error):**
   1. Tell the user: "The Atlassian MCP server is not connected or not configured."
   2. Ask: **"Would you like me to help set it up? 1 — Yes / 2 — Skip tracker"**
-  3. If **1:** Guide the user through adding the Atlassian MCP server to their Claude Code MCP settings. **CRITICAL: NEVER store, save, log, or transmit API keys, tokens, or credentials anywhere — the user must enter them directly into their own MCP configuration only.** After setup, retry `getVisibleJiraProjects`. If still fails — report the error, set `tracker.mcp` to `null`, skip remaining tracker setup.
+  3. If **1:** Guide the user through adding the Atlassian MCP server to their Codex MCP settings. **CRITICAL: NEVER store, save, log, or transmit API keys, tokens, or credentials anywhere — the user must enter them directly into their own MCP configuration only.** After setup, retry `getVisibleJiraProjects`. If still fails — report the error, set `tracker.mcp` to `null`, skip remaining tracker setup.
   4. If **2:** Set `tracker.mcp` to `null`, skip remaining tracker setup.
 
 **Select project:**
@@ -105,13 +105,13 @@ No status matched "done" automatically. Available statuses in your project:
 2 — Resolved
 3 — Won't Fix
 4 — Obsolete
-0 — Disable ticket closing (/n1:n1-finish will skip this step)
+0 — Disable ticket closing (n1-codex:n1-finish will skip this step)
 
 Which status represents a closed/resolved ticket?
 ```
 
 - **Numbered pick** → set as `tracker.statuses.done`.
-- **Pick 0** → omit `tracker.statuses.done` from config. Warn: "Ticket closing disabled. Re-run `/n1:n1-init` to configure it later."
+- **Pick 0** → omit `tracker.statuses.done` from config. Warn: "Ticket closing disabled. Re-run `n1-codex:n1-init` to configure it later."
 
 **Detect Atlassian Cloud ID:**
 

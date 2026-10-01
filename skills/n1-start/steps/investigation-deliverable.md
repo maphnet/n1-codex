@@ -64,13 +64,13 @@ Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)
 After agent returns: write output to `$N1_HOME/memory/<ID>/investigation.md`. Update overview: `[x] Investigation deliverable`, set `step: investigation-deliverable`.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_verify_dependencies "$N1_HOME/memory/$ID" investigation.md
 ```
 
 **Extract and persist signals:**
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 
 INV_FILE="$N1_HOME/memory/$ID/investigation.md"
 
@@ -115,7 +115,7 @@ If `UNKNOWN_COUNT` is 0, skip to Phase 3.
 
 **Emit question telemetry** for each unknown presented and each "Decide for me":
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "asked" "codebase|web"
 # For "Decide for me":
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "auto-decided" "codebase|web"
@@ -141,7 +141,7 @@ After answers: append `### Clarifications` to investigation.md (after `### Refer
 
 Update `unknowns_resolved` signal:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 INV_FILE="$N1_HOME/memory/$ID/investigation.md"
 UNKNOWNS_TOTAL=$(cat "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null | grep -c '<!-- n1:unknown:' || echo "0")
 UNKNOWNS_ANSWERED_ANALYSIS=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
@@ -155,7 +155,7 @@ n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_
 **Gate** (skip if any fails): tracker ticket ID exists; (`ticketEnrichment.enabled !== false` OR `N1_QUEUE_RUN_ID` is set); `tracker.operations.editTicket` OR `tracker.operations.addComment` exists.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ENRICHMENT_ENABLED=$(n1_config_val ".ticketEnrichment.enabled" "$N1_HOME/config.json")
 HAS_EDIT=$(n1_config_val ".tracker.operations.editTicket" "$N1_HOME/config.json")
 HAS_COMMENT=$(n1_config_val ".tracker.operations.addComment" "$N1_HOME/config.json")
@@ -216,7 +216,7 @@ Post comment: `**Investigation Results (N1)**\n**Question:** ...\n**Summary:** .
 No follow-up ticket creation, no ticket-type conversion, no close — restore-only. Read `ORIGINAL_STATUS` and log a Decision Ledger row:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 OVERVIEW="$N1_HOME/memory/$ID/overview.md"
 ORIGINAL_STATUS=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status")
 TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
@@ -240,7 +240,7 @@ Ask: `"Investigation done. Create a tracker ticket? 1 — Yes / 2 — No"`
 
 Read signals:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 INV_FILE="$N1_HOME/memory/$ID/investigation.md"
 CONFIDENCE=$(n1_read_signal "$INV_FILE" "confidence")
 IMPLEMENTABLE=$(n1_read_signal "$INV_FILE" "implementable")
@@ -276,7 +276,7 @@ When `IMPLEMENTABLE!=true`: "What next? 1 — Close ticket [/ 2 — Restore to o
 3. Add comment: "Converted from investigation to implementation task."
 4. Update overview.md frontmatter:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "task"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "brainstorm"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "direct"

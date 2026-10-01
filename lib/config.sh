@@ -124,148 +124,33 @@ n1_config_ops() {
         | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g' || true
 }
 
-n1_resolve_tier() {
-    local tier="$1" base_model="$2"
-    case "$tier" in
-        frontier) printf 'opus' ;;
-        standard) printf '%s' "$base_model" ;;
-        downgrade)
-            case "$base_model" in
-                opus) printf 'sonnet' ;;
-                sonnet) printf 'haiku' ;;
-                *) printf '%s' "$base_model" ;;
-            esac
-            ;;
-        minimal) printf 'haiku' ;;
-        *) printf '%s' "$base_model" ;;
-    esac
+_n1_codex_override() {
+    # Shared config stays untouched. No jq means safely inherit Codex defaults.
+    # Usage: _n1_codex_override <persona> <model|effort>
+    local file; file=$(n1_config_file)
+    [ -f "$file" ] && command -v jq >/dev/null 2>&1 || return 0
+    jq -r --arg p "$1" --arg key "$2" '
+        .models[$p] as $entry |
+        (if ($entry|type) == "object" then $entry.codex else $entry end) as $host |
+        (if ($host|type) == "object" then $host[$key]
+         elif $key == "model" then $host else null end) as $value |
+        if ($value|type) != "string" then empty
+        elif $key == "model" then
+            if ($value|test("^gpt[A-Za-z0-9._-]*$")) then $value else empty end
+        elif (["none","minimal","low","medium","high","xhigh","max","ultra"]|index($value)) != null then $value
+        else empty end' "$file" 2>/dev/null || true
 }
 
-_n1_agent_frontmatter() {
-    # Usage: _n1_agent_frontmatter <persona> <model|effort>
-    local persona="$1" key="$2" agent_file
-    agent_file="$(n1_plugin_root)/agents/${persona}.md"
-    [ -f "$agent_file" ] || return 0
-    awk -v key="$key" 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && $0 ~ "^" key ":[[:space:]]*" { sub("^" key ":[[:space:]]*", ""); gsub(/\r/, ""); print; exit }' "$agent_file"
-}
-
-_n1_known_role() {
-    local role
-    role=$(_n1_agent_frontmatter "$1" model)
-    case "$role" in opus|sonnet|haiku) printf '%s' "$role";; esac
-}
-
-_n1_model_override() {
-    # Usage: _n1_model_override <persona> — models.<persona> from config, or empty.
-    # Plain string. A pre-4.0 host-keyed object is read through its "claude-code" key.
-    local persona="$1" config_file
-    config_file=$(n1_config_file)
-    [ -f "$config_file" ] || return 0
-    if command -v jq >/dev/null 2>&1; then
-        jq -r --arg p "$persona" '
-            .models[$p] as $e |
-            if ($e|type) == "string" then $e
-            elif ($e|type) == "object" then ($e["claude-code"] | if type == "string" then . elif type == "object" then (.model // empty) else empty end)
-            else empty end' "$config_file" 2>/dev/null || true
-    else
-        n1_config_val ".models.${persona}" "$config_file"
-    fi
-}
-
-n1_model_for() {
-    # Usage: n1_model_for <persona> — the model to spawn this persona with.
-    local persona="$1" v role
-    role=$(_n1_known_role "$persona")
-    if [ -n "$role" ]; then n1_resolve_model "$persona"; return; fi
-    v=$(_n1_model_override "$persona")
-    if [ -n "$v" ]; then printf '%s' "$v"; return; fi
-    printf 'sonnet'
-}
+n1_model_for() { n1_resolve_model "$1"; }
 
 n1_resolve_model() {
-    local agent_name="$1"
-    local context="${2:-}"
-    local override=""
-    local config_file
-    config_file=$(n1_config_file)
-
-    # 1. Config override (always wins)
-    override=$(_n1_model_override "$agent_name")
-    if [ -n "$override" ]; then printf '%s' "$override"; return; fi
-
-    # Get base model from agent frontmatter
-    local base_model
-    base_model=$(_n1_known_role "$agent_name")
-    if [ -z "$base_model" ]; then
-        printf 'sonnet'; return
-    fi
-
-    # 2. Signal-driven escalation/downgrade (condition-gated)
-    local pipeline_file="$(n1_plugin_root)/pipeline.json"
-    if [ -f "$pipeline_file" ] && [ -n "$context" ] && command -v jq >/dev/null 2>&1; then
-        local trigger_key="${agent_name}:${context}"
-        local mem_dir="${N1_HOME:+${N1_HOME}/memory/${ID}}"
-        local overview_file="${mem_dir:+${mem_dir}/overview.md}"
-
-        type n1_eval_signal_gate >/dev/null 2>&1 || source "$(n1_plugin_root)/lib/signals.sh" 2>/dev/null || true
-
-        local section trigger_tier trigger_cond
-        for section in escalation_triggers downgrade_triggers; do
-            trigger_tier=$(jq -r ".${section}[\"${trigger_key}\"].tier // empty" "$pipeline_file" 2>/dev/null || true)
-            [ -n "$trigger_tier" ] || continue
-
-            trigger_cond=$(jq -c ".${section}[\"${trigger_key}\"].condition // empty" "$pipeline_file" 2>/dev/null || true)
-            if [ -z "$trigger_cond" ] || [ "$trigger_cond" = '""' ]; then
-                # No condition — apply unconditionally
-                n1_resolve_tier "$trigger_tier" "$base_model"
-                return
-            fi
-
-            # Evaluate condition; requires memory dir
-            if [ -n "$mem_dir" ] && [ -d "$mem_dir" ]; then
-                type n1_record_decision >/dev/null 2>&1 || source "$(n1_plugin_root)/lib/telemetry.sh" 2>/dev/null || true
-                local dec_id="${section%_triggers}:${trigger_key}"   # e.g. escalation:developer:implementation
-                if n1_eval_signal_gate "$mem_dir" "$overview_file" "$trigger_cond"; then
-                    n1_record_decision "$dec_id" true "$trigger_cond" "tier=${trigger_tier}" 2>/dev/null || true
-                    n1_resolve_tier "$trigger_tier" "$base_model"
-                    return
-                else
-                    n1_record_decision "$dec_id" false "$trigger_cond" "tier=${trigger_tier}" 2>/dev/null || true
-                fi
-            fi
-        done
-    fi
-
-    # 3. Profile step_overrides (from type registry)
-    if [ -f "$pipeline_file" ] && [ -n "$N1_HOME" ] && [ -n "$ID" ]; then
-        local overview_file="${N1_HOME}/memory/${ID}/overview.md"
-        if [ -f "$overview_file" ]; then
-            source "$(n1_plugin_root)/lib/frontmatter.sh" 2>/dev/null || true
-            local wf_type
-            wf_type=$(n1_read_frontmatter "$overview_file" "type" 2>/dev/null || true)
-            if [ -n "$wf_type" ]; then
-                local step_name="$context"
-                [ -z "$step_name" ] && step_name="$agent_name"
-                local profile_tier=""
-                if command -v jq >/dev/null 2>&1; then
-                    profile_tier=$(jq -r ".types[\"${wf_type}\"].step_overrides[\"${step_name}\"].model_tier // empty" "$pipeline_file" 2>/dev/null || true)
-                fi
-                if [ -n "$profile_tier" ]; then
-                    n1_resolve_tier "$profile_tier" "$base_model"
-                    return
-                fi
-            fi
-        fi
-    fi
-
-    # 4. Agent frontmatter default
-    printf '%s' "$base_model"
+    # Claude frontmatter, tiers, and pipeline signals never choose a Codex model.
+    _n1_codex_override "$1" model
 }
 
 n1_resolve_agent() {
-    # Usage: n1_resolve_agent <persona> [step-context] — prints "<model>\t<effort>".
-    # Effort is always empty on Claude Code; the column stays so tab-splitting callers are unchanged.
-    printf '%s\t\n' "$(n1_resolve_model "$1" "${2:-}")"
+    # Preserve the two-column tab contract, including an empty inherited model.
+    printf '%s\t%s\n' "$(n1_resolve_model "$1" "${2:-}")" "$(_n1_codex_override "$1" effort)"
 }
 
 

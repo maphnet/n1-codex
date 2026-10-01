@@ -29,17 +29,17 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
 
    ```bash
    MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")
-   PLUGIN_VERSION=$(grep '"version"' "${MAIN_CHECKOUT}/.claude-plugin/plugin.json" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+   PLUGIN_VERSION=$(grep '"version"' "${MAIN_CHECKOUT}/.codex-plugin/plugin.json" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
    ```
 
-   If the worktree check is not applicable (standalone checkout), use `.claude-plugin/plugin.json` directly.
+   If the worktree check is not applicable (standalone checkout), use `.codex-plugin/plugin.json` directly.
 
 3. **Read PR URL** from the `## Pending` section of `$N1_HOME/memory/<ID>/overview.md` — the line recording the PR URL written by n1-pr.
 
 4. **Read tracker config** (run via Bash):
 
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
    PROJECT_KEY=$(n1_config_val ".tracker.projectKey" "$N1_HOME/config.json")
    TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")

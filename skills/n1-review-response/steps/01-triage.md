@@ -11,7 +11,7 @@ Not authenticated → "Run `gh auth login` first." **STOP.**
 ## Step 1: Resolve PR Number and Context
 
 - **Argument** (`#123` or `123`): strip `#`, use directly.
-- **No argument:** `gh pr view --json number,headRefName --jq '.number'`. No PR → "No open PR found. Create one first or specify: `/n1:n1-review-response #123`" **STOP.**
+- **No argument:** `gh pr view --json number,headRefName --jq '.number'`. No PR → "No open PR found. Create one first or specify: `n1-codex:n1-review-response #123`" **STOP.**
 
 ```bash
 PR_INFO=$(gh pr view --json number,url,headRefName,author)

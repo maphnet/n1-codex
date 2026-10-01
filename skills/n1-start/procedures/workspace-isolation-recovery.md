@@ -6,7 +6,7 @@ Read this file only when `procedures/workspace-isolation.md` instructs you to (w
 
 Before any user prompt, write pending marker:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" "<one-line description>"
 ```
 After answer: `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" ""`.
@@ -45,7 +45,7 @@ The destructive option (Abort) is never auto-selected.
 
 ## Ensure Worktree — Failure Recovery
 
-If `git worktree add` fails because the directory already exists (e.g., from a crashed prior run): manually remove `<main-checkout>/<worktree-root>/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
+If `git worktree add` fails because the directory already exists (e.g., from a crashed prior run): manually remove `<main-checkout>/<worktree-root>/<ID>/` or run `n1-codex:n1-clean` to clean up stale worktrees, then retry.
 
 To remove a stale worktree entry without the directory:
 ```bash

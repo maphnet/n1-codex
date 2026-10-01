@@ -1,7 +1,6 @@
 ---
 name: n1-rules
 description: "List, add, and validate N1 project rules. Rules are authored, checkable project conventions that drive review gates and deny hooks."
-model: sonnet
 effort: low
 ---
 
@@ -19,7 +18,7 @@ Manage project rules — authored, checkable conventions that drive review gates
 ## Preamble
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/rules.sh"
 
 N1_HOME=$(n1_home)

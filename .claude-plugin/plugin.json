@@ -1,9 +1,0 @@
-{
-  "name": "n1",
-  "description": "AI-driven development orchestrator. No one writes the code.",
-  "author": {
-    "name": "N1 Team"
-  },
-  "version": "4.1.0",
-  "license": "MIT"
-}

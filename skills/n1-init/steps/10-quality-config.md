@@ -107,7 +107,7 @@ Cache is stored at $N1_HOME/cache/project-snapshot.md and auto-invalidated on st
 Detect structural files by scanning the repo root for known markers:
 ```bash
 # Check which structural file patterns actually exist in this repo
-for pattern in package.json Cargo.toml go.mod pyproject.toml CLAUDE.md Dockerfile docker-compose.yml ".github/workflows/*"; do
+for pattern in package.json Cargo.toml go.mod pyproject.toml AGENTS.md Dockerfile docker-compose.yml ".github/workflows/*"; do
   ls $pattern 2>/dev/null
 done
 ```

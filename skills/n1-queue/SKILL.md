@@ -1,10 +1,12 @@
 ---
 name: n1-queue
-description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children never merge unless queue.mergeOnFinish is set. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
+description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children never merge unless queue.mergeOnFinish is set. Usage: n1-codex:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
 argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
 ---
 
 # N1 Queue
+
+**Codex milestone 1: unsupported.** Before sourcing the preamble, parsing arguments, calling trackers, creating directories, writing plans, or launching any runner, report: "n1-queue is unsupported in N1 Codex milestone 1. Use n1-codex:n1-start for one ticket at a time, or use the original N1 plugin for queues." **STOP.** This applies to every mode, including status, watch, answer, plan, run, and dry-run. The legacy procedures below are retained as reference only.
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
@@ -15,11 +17,11 @@ Launches a batch of tracker tickets through `n1-start` sequentially via a backgr
 ## Preamble
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 ```
 
-If `N1_HOME` is empty: "N1 is not configured for this project. Run `/n1:n1-init` to set it up." **STOP.**
+If `N1_HOME` is empty: "N1 is not configured for this project. Run `n1-codex:n1-init` to set it up." **STOP.**
 
 ## Input
 
@@ -30,7 +32,7 @@ Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tr
 ## Tracker gate
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 TRACKER_MCP=$(n1_config_val '.tracker.mcp'); TRACKER_TYPE=$(n1_config_val '.tracker.type')
 SEARCH_OP=$(n1_config_val '.tracker.operations.search'); READ_OP=$(n1_config_val '.tracker.operations.readTicket')
@@ -39,7 +41,7 @@ LINKS_OP=$(n1_config_val '.tracker.operations.getIssueLinks')
 PREFIX=$(n1_config_val '.tracker.prefix'); PROJECT_KEY=$(n1_config_val '.tracker.projectKey')
 TODO_STATUS=$(n1_config_val '.tracker.statuses.todo'); CLOUD_ID=$(n1_config_val '.tracker.cloudId')
 ```
-If `TRACKER_MCP` is empty: "No tracker configured. Run `/n1:n1-init`." **STOP.**
+If `TRACKER_MCP` is empty: "No tracker configured. Run `n1-codex:n1-init`." **STOP.**
 
 ## Steps
 

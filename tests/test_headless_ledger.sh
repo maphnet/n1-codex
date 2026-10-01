@@ -84,10 +84,10 @@ fi
 # ---------------------------------------------------------------------------
 # Test 8: escalation comment includes resume instruction
 # ---------------------------------------------------------------------------
-if grep -q 'Resume: /n1:n1-start' "$HEADLESS_FILE"; then
-    pass "T8: procedure contains 'Resume: /n1:n1-start'"
+if grep -q 'Resume: n1-codex:n1-start' "$HEADLESS_FILE"; then
+    pass "T8: procedure contains 'Resume: n1-codex:n1-start'"
 else
-    fail "T8: procedure missing 'Resume: /n1:n1-start'"
+    fail "T8: procedure missing 'Resume: n1-codex:n1-start'"
 fi
 
 # ---------------------------------------------------------------------------

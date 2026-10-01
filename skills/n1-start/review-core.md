@@ -5,7 +5,7 @@ Used by `steps/review.md` and `n1-review`. Caller must define `<BASE_BRANCH>`.
 ## Diff Surface Classification
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 BASE=$(git merge-base "<BASE_BRANCH>" HEAD)
 CHANGED=$(git diff --name-only "$BASE" HEAD)
 FILE_COUNT=$(echo "$CHANGED" | wc -l)
@@ -28,7 +28,7 @@ Reviewer selection: `code-reviewer` runs unless `REVIEW_TIER=SKIP`. When `REVIEW
 ## Review Tier
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 LINES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/implementation.md" "lines_changed")
 LINES_CHANGED=${LINES_CHANGED:-0}
 ALL_LOW_RISK=$(n1_classify_all_low_risk "$CHANGED")
@@ -54,7 +54,7 @@ Record the tier decision in Decision Ledger on every run.
 ## Gate Rule Injection
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 CR_RULES_BLOCK=""

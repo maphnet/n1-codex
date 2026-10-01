@@ -5,7 +5,7 @@
 Two input sources — combine both when available:
 
 1. **Argument** — the text passed after the command (brain dump). This is the primary intent signal.
-2. **Conversation** — prior messages in this Claude Code session. Summarize relevant context from the conversation that relates to the argument or, if no argument, identify the main actionable outcome.
+2. **Conversation** — prior messages in this Codex session. Summarize relevant context from the conversation that relates to the argument or, if no argument, identify the main actionable outcome.
 
 **Empty context guard:** If there is no argument AND no meaningful prior conversation (e.g., this is the first message in the session), ask: "Please describe what you'd like to create a ticket for." Wait for the response, then use it as the argument.
 
@@ -25,7 +25,7 @@ Review the summary. If it contains multiple independent deliverables (e.g., "add
 `| n1-ticket | mechanical | C | [auto] | Multi-task scope detected — use n1-story? | Proceed with single ticket | Use n1-story instead | mechanicalPrompts=auto | --- |`
 If `MP` is `ask`: continue to the prompt below.
 
-"This looks like it contains multiple independent tasks. Would you like to use `/n1:n1-story` instead to create a story with subtasks?"
+"This looks like it contains multiple independent tasks. Would you like to use `n1-codex:n1-story` instead to create a story with subtasks?"
 
 This is a soft gate — if the user says no, proceed with a single ticket.
 
@@ -37,7 +37,7 @@ TRACKER_TYPE=$(n1_config_val '.tracker.type')
 PROJECT_KEY=$(n1_config_val '.tracker.projectKey')
 ```
 
-If `TRACKER_MCP` is empty or null, tell the user: "No tracker configured. Run `/n1:n1-init` to set up a tracker." **STOP.**
+If `TRACKER_MCP` is empty or null, tell the user: "No tracker configured. Run `n1-codex:n1-init` to set up a tracker." **STOP.**
 
 Read tracker operations:
 ```bash
@@ -53,7 +53,9 @@ Spawn the `solution-architect` agent for a quick codebase pass focused on the ti
 
 Resolve model:
 ```bash
-IFS=$'\t' read -r MODEL EFFORT < <(n1_resolve_agent 'solution-architect' 'light')
+AGENT_CONFIG=$(n1_resolve_agent 'solution-architect' 'light')
+MODEL=${AGENT_CONFIG%%$'\t'*}
+EFFORT=${AGENT_CONFIG#*$'\t'}
 ```
 
 Pass both `MODEL` and `EFFORT` to the spawn.

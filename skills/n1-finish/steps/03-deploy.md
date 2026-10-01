@@ -16,7 +16,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 3. Outcomes:
    - **All `conclusion: success` (or `neutral`/`skipped`)** → deploy status `succeeded`. Continue to Step 4.
    - **Any `failure`** → fetch logs: `gh run view <databaseId> --log-failed 2>&1 | head -200`. Report the failed run + URL. Add tracker comment (when tracker configured): "Deployment failed after merging <PR URL>: <run URL>". **Do not close the ticket.** **STOP.**
-   - **Timeout with runs still in progress** → report the still-running run URLs; "Deploy still running — re-run `/n1:n1-finish` to resume watching." **STOP.**
+   - **Timeout with runs still in progress** → report the still-running run URLs; "Deploy still running — re-run `n1-codex:n1-finish` to resume watching." **STOP.**
 
 # Step 3b: Post-Deploy Smoke Verification
 
@@ -51,7 +51,7 @@ Also skip if deploy status from Step 3 is `failed` (deployment failed -- no poin
 
 **Telemetry:**
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/telemetry.sh"
 SMOKE_OUTCOME=$( [ "$SMOKE_ALL_PASSED" = "true" ] && echo "pass" || echo "fail" )
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "smoke" 17 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=$SMOKE_OUTCOME loop_iteration=null metadata="{\"action_type\":\"smoke_executed\",\"endpoint_status\":\"$HTTP_STATUS\",\"tests_total\":$TESTS_TOTAL,\"tests_passed\":$TESTS_PASSED}"

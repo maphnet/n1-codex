@@ -8,11 +8,11 @@ description: "Run a prompt with N1 project context — escape hatch from the ful
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 echo "N1_HOME=$N1_HOME"
 ```
 
-If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured. Run `/n1:n1-init` first." **STOP.**
+If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured. Run `n1-codex:n1-init` first." **STOP.**
 
 All config reads use `n1_*_val` helpers (never cat config.json). All memory paths use `$N1_HOME/memory/$ID/`.
 

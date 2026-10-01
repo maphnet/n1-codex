@@ -30,7 +30,7 @@ After developer returns for `unknown` checks:
 **Batch all fixable failures** into one developer agent spawn. Resolve model for `developer`.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
 DIFF_CONTENT=$(git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)..HEAD)
 DIFF_BYTES=${#DIFF_CONTENT}
@@ -82,7 +82,7 @@ Output format:
 2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`.
 3. Push if developer didn't: `git push`
 4. ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    source "$N1_ROOT/lib/frontmatter.sh"
    n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "ci_fix_cycle"
    ```
@@ -125,5 +125,5 @@ Works without N1 memory — developer uses only diff and logs. Skip memory reads
 
 ## Integration
 
-**Called by:** n1-start (step 11, CI watch after PR creation), standalone `/n1:n1-ci` or `/n1:n1-ci #123`
+**Called by:** n1-start (step 11, CI watch after PR creation), standalone `n1-codex:n1-ci` or `n1-codex:n1-ci #123`
 **Invokes:** n1 agent: developer (CI fix cycle)

@@ -99,7 +99,7 @@ Only runs after a **successful release** (built-in flow success or custom proced
    ```
    - **2 (No)** → set `release.deploymentCheck` to `false` in `$N1_HOME/config.json` via:
      ```bash
-     source ~/.n1/preamble.sh
+     source ~/.n1-codex/preamble.sh
      jq '.release.deploymentCheck = false' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
      ```
      Report: "Deployment check disabled for this project. Re-enable via n1-init or by setting `release.deploymentCheck: true` in config."
@@ -126,7 +126,7 @@ Tracker release operations are individually idempotent: existing versions are re
 
 **Called by:**
 - **n1-start** -- step `release` (after finish), gated on `release.enabled`
-- **Standalone** -- `/n1:n1-release`
+- **Standalone** -- `n1-codex:n1-release`
 
 **Invokes:**
 - Inline: `gh` CLI (release view/create, auth status, PR body read/edit), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit), `references/ci-detection.md` (deployment pipeline detection), `references/deployment-actions.md` (deployment actions)

@@ -57,8 +57,8 @@ def _has(command: str, word_re: str) -> bool:
 
 
 def persona_of(agent_type: str):
-    if agent_type.startswith("n1:"):
-        return agent_type[len("n1:"):]
+    if agent_type.startswith("n1-"):
+        return agent_type[len("n1-"):]
     return None
 
 
@@ -67,7 +67,7 @@ def model_override(config: dict, persona: str):
     if isinstance(entry, str):
         return entry
     if isinstance(entry, dict):
-        value = entry.get("claude-code")
+        value = entry.get("codex")
         if isinstance(value, str):
             return value or None
         if isinstance(value, dict):
@@ -96,8 +96,14 @@ def restriction(payload: dict, plugin_root: str) -> int:
     if not persona or not tool:
         return 0
     allowed = persona_tools(plugin_root, persona)
-    if allowed is None or tool.startswith("mcp__"):
+    if allowed is None:
         return 0
+    # Codex reviewer profiles enforce filesystem read-only via the native sandbox.
+    # Block direct patch edits too; shell reads are necessary for git/rg inspection.
+    if tool in {'Bash', 'exec_command', 'shell', 'shell_command', 'read_file', 'view_image'}:
+        return 0
+    if tool == 'apply_patch':
+        tool = 'Edit'
     ok = tool in allowed
     if ok:
         return 0
@@ -114,6 +120,8 @@ def spawn_override(payload: dict, config: dict) -> int:
     if not persona:
         return 0
     override = model_override(config, persona)
+    if override and not re.fullmatch(r'gpt[A-Za-z0-9._-]*', override):
+        override = None
     if not override or tool_input.get("model") == override:
         return 0
     print(json.dumps({

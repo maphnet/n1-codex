@@ -4,8 +4,10 @@
 Runs `n1-plan` skill in isolated subagent (prevents interactive prompts leaking to user; subagent lacks Bash so cannot chain into implementation or commit).
 
 ```bash
-source ~/.n1/preamble.sh
-IFS=$'\t' read -r PLANNER_MODEL PLANNER_EFFORT < <(n1_resolve_agent planner plan)
+source ~/.n1-codex/preamble.sh
+AGENT_CONFIG=$(n1_resolve_agent planner plan)
+PLANNER_MODEL=${AGENT_CONFIG%%$'\t'*}
+PLANNER_EFFORT=${AGENT_CONFIG#*$'\t'}
 source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 RULES_BLOCK=""
@@ -18,7 +20,7 @@ fi
 ```
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md analysis.md || { echo "ERROR: upstream artifacts missing — cannot plan" >&2; exit 1; }
 ```
 

@@ -1,33 +1,43 @@
 #!/usr/bin/env bash
-# lib/host.sh: Claude Code is the only host (N1-63).
-set -uo pipefail
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-source "$REPO_ROOT/lib/host.sh"
-PASS=0; FAIL=0
-eq()    { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected '$2', got '$3')"; FAIL=$((FAIL+1)); fi; }
-has()   { case "$3" in *"$2"*) echo "PASS: $1"; PASS=$((PASS+1));; *) echo "FAIL: $1 (missing '$2' in: $3)"; FAIL=$((FAIL+1));; esac; }
-lacks() { case "$3" in *"$2"*) echo "FAIL: $1 (unexpected '$2' in: $3)"; FAIL=$((FAIL+1));; *) echo "PASS: $1"; PASS=$((PASS+1));; esac; }
-
-eq "host: constant in an empty env" claude-code "$(env -i PATH="$PATH" bash -c "source '$REPO_ROOT/lib/host.sh'; n1_host")"
-eq "host: ignores stale N1_HOST/CODEX_THREAD_ID" claude-code "$(N1_HOST=codex CODEX_THREAD_ID=x n1_host)"
-eq "session id: N1_SESSION_ID wins" abc "$(N1_SESSION_ID=abc CLAUDE_CODE_SESSION_ID=def n1_session_id)"
-eq "session id: CLAUDE_CODE_SESSION_ID fallback" def "$(unset N1_SESSION_ID; CLAUDE_CODE_SESSION_ID=def n1_session_id)"
-eq "session id: CODEX_THREAD_ID ignored" "" "$(unset N1_SESSION_ID CLAUDE_CODE_SESSION_ID; CODEX_THREAD_ID=x n1_session_id)"
-eq "worktree root: default" .claude/worktrees "$(n1_worktree_root)"
-eq "agent type" n1:developer "$(n1_agent_type developer)"
-eq "persona name: n1: stripped" developer "$(n1_persona_name n1:developer)"
-eq "persona name: n1- is not a persona" "" "$(n1_persona_name n1-developer)"
-eq "plugin version: Claude Code manifest" "$(jq -r .version "$REPO_ROOT/.claude-plugin/plugin.json")" "$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" n1_plugin_version)"
-
-cmd=$(N1_SESSION_ID=parent n1_headless_cmd n1-start T-1 sonnet /tmp/out /repo high)
-has   "headless: claude -p transport" "claude -p " "$cmd"
-has   "headless: model" "--model sonnet" "$cmd"
-has   "headless: effort" "--effort high" "$cmd"
-has   "headless: repo cd" "cd /repo && " "$cmd"
-has   "headless: parent linkage" "N1_PARENT_SESSION_ID=parent" "$cmd"
-has   "headless: closed stdin + log" "< /dev/null > /tmp/out 2>&1" "$cmd"
-lacks "headless: no N1_HOST export" "N1_HOST" "$cmd"
-lacks "headless: no codex" "codex" "$cmd"
-
-echo "Passed: $PASS  Failed: $FAIL"
-[ "$FAIL" -eq 0 ]
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/lib/host.sh"
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+check() { [ "$2" = "$3" ] || { echo "FAIL: $1 expected '$2', got '$3'" >&2; exit 1; }; }
+check host codex "$(N1_HOST=claude-code n1_host)"
+check internal internal "$(N1_SESSION_ID=internal CODEX_THREAD_ID=native n1_session_id)"
+check native native "$(unset N1_SESSION_ID; CODEX_THREAD_ID=native n1_session_id)"
+check no-claude "" "$(unset N1_SESSION_ID CODEX_THREAD_ID; CLAUDE_CODE_SESSION_ID=stale n1_session_id)"
+check state "$HOME/.n1-codex/sessions/thread.json" "$(unset N1_STATE_DIR; N1_SESSION_ID=thread n1_session_file)"
+if N1_SESSION_ID='../bad' n1_session_file; then exit 1; fi
+check root "$ROOT" "$(unset CODEX_PLUGIN_ROOT N1_PLUGIN_ROOT; CLAUDE_PLUGIN_ROOT=/stale PLUGIN_ROOT=/stale n1_plugin_root)"
+check default .codex/n1-worktrees "$(n1_worktree_root)"
+n1_config_val() { printf 'custom/'; }
+check configured custom "$(n1_worktree_root)"
+unset -f n1_config_val
+for fn in n1_bg_cmd n1_bg_launch_cmd; do
+    if "$fn" agents 2>"$TMP/error"; then exit 1; fi
+    [[ "$( < "$TMP/error")" = *unsupported* ]]
+done
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$@" > "$N1_TEST_CAPTURE"' 'printf "%s\n" "${CODEX_THREAD_ID-unset}|${N1_SESSION_ID-unset}|${N1_PARENT_SESSION_ID-}" >> "$N1_TEST_CAPTURE"' > "$TMP/codex"
+chmod +x "$TMP/codex"
+export PATH="$TMP:$PATH"
+export N1_TEST_CAPTURE="$TMP/argv"
+printf 'Brief with "quotes" and $literal\n' > "$TMP/brief"
+cmd=$(N1_SESSION_ID=parent CODEX_THREAD_ID=old n1_headless_cmd n1-start 'T-1; $(false)' gpt-6.1-sol "$TMP/out log" "$TMP" high "$TMP/brief")
+bash -c "$cmd"
+mapfile -t argv < "$TMP/argv"
+check exec exec "${argv[0]}"
+check json --json "${argv[1]}"
+check model --model "${argv[2]}"
+check model-value gpt-6.1-sol "${argv[3]}"
+check config -c "${argv[4]}"
+check effort 'model_reasoning_effort="high"' "${argv[5]}"
+check separator -- "${argv[6]}"
+check prompt '$n1-start T-1; $(false)' "${argv[7]}"
+check brief 'Brief with "quotes" and $literal' "${argv[8]}"
+check child-identity 'unset|unset|parent' "${argv[9]}"
+[[ "$cmd" != *bypass* && "$cmd" != *permission-mode* ]]
+if n1_headless_cmd n1-start T-1 '' "$TMP/log" '' 'high";x' >/dev/null 2>&1; then exit 1; fi
+echo 'PASS: Codex host and transport'

@@ -61,7 +61,7 @@ Do NOT apply any fixes. This is advisory only — the user decides what to do wi
 
 **Called by:**
 - **n1-start** — as the mandatory review loop before PR creation
-- **Standalone** — `/n1:n1-review` or `/n1:n1-review #340`
+- **Standalone** — `n1-codex:n1-review` or `n1-codex:n1-review #340`
 
 **Invokes:**
 - n1 agent: **code-reviewer** — bug finding (Phase 2) and false-positive verification (Phase 3)

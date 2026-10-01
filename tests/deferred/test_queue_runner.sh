@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# Deferred Claude background-queue contract; not part of Codex milestone 1.
 # Tests for lib/queue.sh and scripts/n1-queue-run.sh
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PASS=0
 FAIL=0
 

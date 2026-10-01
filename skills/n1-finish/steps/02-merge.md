@@ -5,7 +5,7 @@
 **Merge permission.** Decide once, before evaluating the PR state:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 if n1_merge_allowed; then echo "merge:allowed"; else echo "merge:denied"; fi
 if [ -n "${N1_QUEUE_RUN_ID:-}" ]; then echo "queue-run:yes"; fi
 ```
@@ -17,7 +17,7 @@ Evaluate the PR state:
 1. **`MERGED`** → capture the merge commit SHA (`.mergeCommit.oid`). Go to Step 3.
 2. **`CLOSED`** (not merged) → report "PR #<n> was closed without merging — nothing to finish. The ticket stays open." **STOP.**
 3. **`OPEN`:**
-   a. Check CI: `gh pr checks <n> --json name,state,conclusion`. If any check has `conclusion: FAILURE` → "CI is red on PR #<n> — run /n1:n1-ci first." **STOP.**
+   a. Check CI: `gh pr checks <n> --json name,state,conclusion`. If any check has `conclusion: FAILURE` → "CI is red on PR #<n> — run n1-codex:n1-ci first." **STOP.**
    b. **PR comment check:** fetch unresolved review threads and pending change requests via a single GraphQL call:
       ```bash
       gh api graphql -f query='
@@ -77,16 +77,16 @@ Evaluate the PR state:
 
       Ask inline — "Proceed with merge? (yes / no — fix first)"
       - **yes** → record in memory (`overview.md` `## Finish`): `Comments: <N> unresolved, user approved merge`. Proceed to sub-item c.
-      - **no** → "Address the comments, push, then re-run `/n1:n1-finish`." **STOP.**
+      - **no** → "Address the comments, push, then re-run `n1-codex:n1-finish`." **STOP.**
 
       **Pagination:** `first:100` threads covers virtually all PRs. If `reviewThreads.pageInfo.hasNextPage` is true, log: "PR has >100 review threads; only the first 100 were checked."
 
       **API failure:** warn and proceed to sub-item c. Comment check is advisory; never blocks merge due to API errors. Log: "Could not fetch PR review comments — skipping comment check."
    c. **Deployment actions (before any merge, `merge:allowed` or `merge:denied`):** follow `<N1_ROOT>/references/deployment-actions.md` § Parse with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`.
-      - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `/n1:n1-finish`." **STOP.**
+      - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `n1-codex:n1-finish`." **STOP.**
       - `unticked:0` → nothing to do; continue with the merge below.
       - `mode:runbook` (queue child or headless run) with any unticked row → § Runbook with `ID=<ID>` and an empty `SHA`. Report "Deployment actions pending for <ID>; not merging. Resume with `n1-finish <ID>` (runbook in N1 memory)." **STOP.** A queue or headless run never merges ahead of these actions.
-      - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
+      - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `n1-codex:n1-finish` when ready; ticked actions are not repeated." **STOP.**
       - `after` rows wait for Step 4.
 
       Then, if the merge permission printed `merge:allowed` → initiate the merge (once, not per poll). On `merge:denied`, skip to sub-item d and wait for the reviewer's merge:
@@ -96,14 +96,14 @@ Evaluate the PR state:
       `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP.**
    d. Bounded wait for merged state — up to `waitForMergeMinutes` total:
       ```bash
-      source ~/.n1/preamble.sh
+      source ~/.n1-codex/preamble.sh
       source "$N1_ROOT/lib/poll.sh"
       n1_wait_pr_merged <n> <remaining-minutes>
       ```
       Repeat the call (subtracting elapsed minutes) while it prints `open` and budget remains.
       - Prints `merged <sha>` → capture SHA, go to Step 3.
       - Prints `closed` → treat as Step 2 case 2 (closed without merging).
-      - Budget exhausted, still `open` → "PR #<n> is not merged yet — waiting on reviewer approval. Re-run `/n1:n1-finish` after the merge; the command is idempotent." **STOP.**
+      - Budget exhausted, still `open` → "PR #<n> is not merged yet — waiting on reviewer approval. Re-run `n1-codex:n1-finish` after the merge; the command is idempotent." **STOP.**
 
 ## Step 2b: Local Merge (no-PR path, `prMode == "skip"` only)
 
@@ -115,7 +115,7 @@ Evaluate the PR state:
      ```bash
      <discovered-test-command> 2>&1; SUITE_EXIT=$?
      ```
-     Non-zero `SUITE_EXIT` → report the failure output and "Refusing to merge: test suite is failing (exit code <SUITE_EXIT>). Fix failing tests and re-run `/n1:n1-finish`." **STOP.**
+     Non-zero `SUITE_EXIT` → report the failure output and "Refusing to merge: test suite is failing (exit code <SUITE_EXIT>). Fix failing tests and re-run `n1-codex:n1-finish`." **STOP.**
 4. **Merge** by `mergeMethod`:
    - `squash`: on `<defaultBranch>` (`git checkout <defaultBranch>`; in `$MAIN_CHECKOUT` when in a worktree): `git merge --squash <branch> && git commit -m "<ID>: <ticket title>"`
    - `merge`: on `<defaultBranch>`: `git merge --no-ff <branch> -m "Merge branch '<branch>'"`

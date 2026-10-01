@@ -1,8 +1,7 @@
 ---
 name: n1-start
-description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
+description: "Core orchestrator. Start working on a task: n1-codex:n1-start TRID-510 or n1-codex:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
 argument-hint: "<ticket-id or brain dump> [--branch] [--investigate]"
-model: sonnet
 ---
 
 # N1 Core Orchestrator
@@ -20,12 +19,12 @@ Accepts ticket ID or brain dump and orchestrates the full development cycle thro
 Run at start of every run before any config or memory access:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/<ID>/`.
 
-**Prerequisites:** `N1_HOME` empty → tell user N1 not configured, offer `/n1:n1-init`. **Model Resolution:** dispatches use `n1_resolve_agent <agent-name> [context]`; pass its model (first tab-separated field) to the spawn.
+**Prerequisites:** `N1_HOME` empty → tell user N1 not configured, offer `n1-codex:n1-init`. **Model Resolution:** use `n1_resolve_agent <agent-name> [context]`; preserve empty tab-separated fields. Omit empty model/effort arguments so Codex inherits session settings; pass only explicit nonempty overrides.
 
 ## Procedures (read on demand)
 

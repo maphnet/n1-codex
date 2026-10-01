@@ -2,7 +2,6 @@
 name: n1-review
 description: "Code review with fix loop. No args = review current branch (fix cycle). With PR number = advisory review (report only)."
 argument-hint: "[PR#]"
-model: opus
 effort: medium
 ---
 
@@ -19,7 +18,7 @@ Three-phase code review: **find → verify → report**. Specialized agents hunt
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.
@@ -31,7 +30,7 @@ All config reads use `n1_*_val` helpers (never cat config.json). All memory path
 When spawning any agent, resolve its model and reasoning effort together via Bash:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 

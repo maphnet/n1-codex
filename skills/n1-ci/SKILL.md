@@ -1,8 +1,7 @@
 ---
 name: n1-ci
-description: "Monitor CI checks after PR creation. Auto-fixes failures via developer agent, escalates to user after max attempts. Usage: /n1:n1-ci or /n1:n1-ci #123"
+description: "Monitor CI checks after PR creation. Auto-fixes failures via developer agent, escalates to user after max attempts. Usage: n1-codex:n1-ci or n1-codex:n1-ci #123"
 argument-hint: "[PR#]"
-model: sonnet
 effort: low
 ---
 
@@ -17,7 +16,7 @@ Monitor CI checks on a PR, classify failures, and delegate fixes to the develope
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If empty — N1 not configured; warn the user. Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/$ID/`.
@@ -25,7 +24,7 @@ If empty — N1 not configured; warn the user. Config: read keys via `n1_*_val` 
 ## Model Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 

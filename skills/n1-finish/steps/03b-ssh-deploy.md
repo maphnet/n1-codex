@@ -5,7 +5,7 @@ Entered from the top of Step 4 (`04-close-ticket.md`) only, after the merge (Ste
 `<SHA>` below is the merge SHA from Step 2 / 2b, or `deploy_merge_sha` on a resume (Step 1). It is empty when nothing has been merged yet.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 echo "delivery:$(n1_delivery_action)"
 ```
 
@@ -19,10 +19,10 @@ Queue children and headless runs **never** run `delivery.command`, any `delivery
 
 1. Write the runbook and mark the ticket as deploy-pending:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    n1_delivery_runbook "<ID>" "<SHA>"
    ```
-2. When `tracker.mcp` is set, post a short comment via `mcp__<tracker.mcp>__<operations.addComment>`: `N1: Deploy pending — resume with /n1:n1-finish <ID> (runbook in N1 memory).` Never post the runbook content or the `delivery.command`/`delivery.steps`/`delivery.verifyCommand` text itself — it may contain hosts, paths, or secrets, and the runbook is local-only. When `operations.getComments` exists, skip the comment if an identical one is already present. If the tracker call fails, warn and continue; never block.
+2. When `tracker.mcp` is set, post a short comment via `mcp__<tracker.mcp>__<operations.addComment>`: `N1: Deploy pending — resume with n1-codex:n1-finish <ID> (runbook in N1 memory).` Never post the runbook content or the `delivery.command`/`delivery.steps`/`delivery.verifyCommand` text itself — it may contain hosts, paths, or secrets, and the runbook is local-only. When `operations.getComments` exists, skip the comment if an identical one is already present. If the tracker call fails, warn and continue; never block.
 3. Add this line to the `## Finish` section of overview.md: `- **Delivery:** pending (runbook: memory/<ID>/runbook.md)`.
 4. Do **not** close the ticket. Skip the rest of Step 4 and Step 5 and go to Step 6.
 
@@ -32,7 +32,7 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
 
 1. Read the delivery shape and the commands. Execution requires `jq` — `n1_delivery_action` already returns `runbook` (not `execute`) when `jq` is unavailable, so reaching this branch means `jq` is present and the values below are parsed safely.
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    echo "multi-step:$(n1_delivery_is_multi_step)"
    echo "command:$(n1_config_val '.delivery.command')"
    echo "verify:$(n1_config_val '.delivery.verifyCommand')"
@@ -49,7 +49,7 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
 3. **No** → run Runbook branch steps 1–3. This records the pending deploy so that `n1-finish <ID>` resumes here without merging again. Report "Deploy skipped. Run `n1-finish <ID>` when ready." **STOP.**
 4. **Yes** → deploy. Both commands run from a temporary detached checkout of `<SHA>` (never the current directory, which may be the feature worktree), so `./deploy.sh` or `rsync ./ …` ship exactly the merged revision. A checkout failure counts as a failed deploy.
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    DEPLOY_DIR="${TMPDIR:-/tmp}/n1-deploy-<ID>"
    git worktree remove --force "$DEPLOY_DIR" 2>/dev/null || true
    git fetch -q origin 2>/dev/null || true
@@ -66,13 +66,13 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
    ```
    Once the deploy (and the verify, when configured) has run — on every outcome of steps 5–7, before any **STOP** — remove the checkout:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>" 2>/dev/null || true
    ```
 5. **Non-zero `deploy-exit`** → run Runbook branch steps 1 and 3 (writes the runbook, marks the ticket deploy-pending, and adds the `- **Delivery:** pending (runbook: memory/<ID>/runbook.md)` line to overview.md). The deploy output stays local — it is not posted to the tracker; it was written to `memory/<ID>/deploy-output.log` above (may contain host/path/secret details). If a tracker is configured, add a comment: "Deploy failed (exit <N>) for <ID>; output kept locally in N1 memory." Report the output and "Fix the cause, then re-run `n1-finish <ID>`." Do not close the ticket. **STOP.**
 6. **Verify:** when `verify:` printed an empty value, record verify as `not configured` and go to step 7. Otherwise run:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    VERIFY_CMD=$(n1_config_val '.delivery.verifyCommand')
    OUT=$(cd "${TMPDIR:-/tmp}/n1-deploy-<ID>" && bash -c "$VERIFY_CMD" 2>&1); VERIFY_EXIT=$?
    mkdir -p "$N1_HOME/memory/<ID>"
@@ -83,7 +83,7 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
    A non-zero `verify-exit` is handled like step 5 (same runbook + local-log + finish-line + tracker comment), with "Deploy verification failed (exit <N>) for <ID>; output kept locally in N1 memory." **STOP.**
 7. **Success:** clear the pending flag and record the result:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
    ```
    Add this line to the `## Finish` section of overview.md: `- **Delivery:** succeeded (<verified | not verified>)`. Return to Step 4 and continue. Step 4's close comment gets the delivery suffix.
@@ -101,14 +101,14 @@ This is an unconditional gate: ask the user for every step, never auto-resolve, 
 
 **Cleanup:** once the walk has started, run this on every outcome before any **STOP** or return:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>" 2>/dev/null || true
 rm -f "$N1_HOME/memory/<ID>/deploy-step.cmd"
 ```
 
 1. Check out the merge SHA and find the first step. Steps run from a temporary detached checkout of `<SHA>`, as the single command does. A resumed deploy starts at `deploy_next_step`, which was recorded when an earlier walk stopped.
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    DEPLOY_DIR="${TMPDIR:-/tmp}/n1-deploy-<ID>"
    git worktree remove --force "$DEPLOY_DIR" 2>/dev/null || true
    git fetch -q origin 2>/dev/null || true
@@ -126,7 +126,7 @@ rm -f "$N1_HOME/memory/<ID>/deploy-step.cmd"
    - Do not close the ticket. **STOP.**
 2. Walk the steps, starting at `<K>` = the `start:` value. For each `<K>`:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    n1_delivery_step <K> "$N1_HOME/memory/<ID>/deploy-step.cmd"
    ```
    Line 1 is the kind; the remaining lines are the item text.
@@ -143,7 +143,7 @@ rm -f "$N1_HOME/memory/<ID>/deploy-step.cmd"
      ```
      On **Yes**, run:
      ```bash
-     source ~/.n1/preamble.sh
+     source ~/.n1-codex/preamble.sh
      CMDF="$N1_HOME/memory/<ID>/deploy-step.cmd"
      OUT=$(cd "${TMPDIR:-/tmp}/n1-deploy-<ID>" && bash "$CMDF" 2>&1); STEP_EXIT=$?
      printf '== step <K+1> (exit %s) ==\n%s\n' "$STEP_EXIT" "$OUT" >> "$N1_HOME/memory/<ID>/deploy-output.log"
@@ -164,7 +164,7 @@ rm -f "$N1_HOME/memory/<ID>/deploy-step.cmd"
    - **Abort** → step 5.
 3. **Verify** once, after the walk. When `verify:` printed an empty value, record verify as `not configured` and go to step 4. Otherwise run:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    VERIFY_CMD=$(n1_config_val '.delivery.verifyCommand')
    OUT=$(cd "${TMPDIR:-/tmp}/n1-deploy-<ID>" && bash -c "$VERIFY_CMD" 2>&1); VERIFY_EXIT=$?
    printf '== verify (exit %s) ==\n%s\n' "$VERIFY_EXIT" "$OUT" >> "$N1_HOME/memory/<ID>/deploy-output.log"
@@ -178,7 +178,7 @@ rm -f "$N1_HOME/memory/<ID>/deploy-step.cmd"
    - Report the output and "Fix the cause, then re-run `n1-finish <ID>`." Do not close the ticket. **STOP.**
 4. **Success:** run Cleanup, then clear the pending state:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_next_step 0 || true
    ```

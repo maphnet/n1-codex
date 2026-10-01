@@ -2,18 +2,7 @@
 
 ## Add Command: Step 9 — Deny Hook Generation
 
-When enforcement is `deny`, generate and register the deny hook:
-
-```bash
-HOOK_DIR="$N1_HOME/hooks"
-mkdir -p "$HOOK_DIR"
-HOOK_PATH="$HOOK_DIR/rules-deny.sh"
-
-n1_generate_deny_hook "$RULES_DIR" "$HOOK_PATH"
-n1_deny_hook_register "$HOOK_PATH"
-```
-
-Tell the user: "Deny hook generated and registered. Matching tool calls will be blocked."
+When enforcement is `deny`, report: "Generated deny hooks are unsupported in Codex milestone 1. The rule is saved without tool-call enforcement; existing shared rules-deny.sh and Claude settings remain unchanged." **STOP this sub-flow before creating directories, generating/registering/deregistering hooks, or deleting hook files.** Continue only to the rule summary below.
 
 **10. Summary:**
 ```
@@ -49,7 +38,7 @@ For each rule file:
 - Invalid → ERROR: "Rule `{name}` has invalid enforcement: `{value}`"
 
 **`applies_to: *` warning:**
-- WARN: "Rule `{name}` applies to every persona — consider whether it belongs in CLAUDE.md instead."
+- WARN: "Rule `{name}` applies to every persona — consider whether it belongs in AGENTS.md instead."
 
 **Gate rule positive phrasing:**
 - If body starts with "Do not"/"Never"/"Don't"/"Must not"/"Avoid" → WARN: "Rule `{name}` uses negative phrasing. Gate rules should state what TO do — LLM reviewers are weak on negation."
@@ -69,37 +58,4 @@ Checked {N} rules: {errors} errors, {warnings} warnings.
 
 ## Command: `check --fix`
 
-Run all checks from the `check` command above, then:
-
-**Deny hook regeneration:**
-
-```bash
-HAS_DENY=false
-while IFS= read -r rf; do
-    [ -z "$rf" ] && continue
-    enf=$(n1_rule_field "$rf" "enforcement")
-    [ "$enf" = "deny" ] && HAS_DENY=true && break
-done < <(n1_rules_list "$RULES_DIR")
-```
-
-**If `HAS_DENY` is true:**
-
-1. Determine hook output path:
-   ```bash
-   HOOK_DIR="$N1_HOME/hooks"
-   mkdir -p "$HOOK_DIR"
-   HOOK_PATH="$HOOK_DIR/rules-deny.sh"
-   ```
-
-2. Generate: `n1_generate_deny_hook "$RULES_DIR" "$HOOK_PATH"`
-
-3. Register: `n1_deny_hook_register "$HOOK_PATH"`
-
-4. Report: "Deny hook generated at `$HOOK_PATH` and registered."
-
-**If `HAS_DENY` is false and a hook was previously registered:**
-
-1. Determine `$HOOK_PATH` same as above
-2. Deregister: `n1_deny_hook_deregister "$HOOK_PATH"`
-3. Remove the generated hook file: `rm -f "$HOOK_PATH"`
-4. Report: "No deny rules found. Deny hook removed."
+Run only the read-only checks from the `check` command above. Then report: "Deny-hook repair is unsupported in Codex milestone 1. Existing shared rules-deny.sh and Claude settings remain unchanged." **STOP before any hook-directory creation, generation, registration, deregistration, or deletion.**

@@ -11,6 +11,7 @@ TRIGGER=$(printf '%s' "$INPUT" | n1_hook_field source)
 HOOK_CWD=$(printf '%s' "$INPUT" | n1_hook_field cwd)
 N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
 export N1_SESSION_ID
+export N1_CODEX_INTERNAL_SESSION=1
 N1_TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | n1_hook_field transcript_path)
 export N1_TRANSCRIPT_PATH
 
@@ -32,7 +33,7 @@ mkdir -p "$(dirname "$HOST_FILE")" 2>/dev/null || true
 printf '{"host":"%s","pluginRoot":"%s","version":"%s"}\n' \
     "$(escape_json_val "$N1_HOST_NAME")" "$(escape_json_val "$N1_ROOT_DIR")" "$(escape_json_val "$N1_VERSION_STR")" > "$HOST_FILE" 2>/dev/null || true
 
-# Plugin-root preamble for skill snippets: `source ~/.n1/preamble.sh` (NP-192, NP-204).
+# Plugin-root preamble for skill snippets: `source ~/.n1-codex/preamble.sh` (NP-192, NP-204).
 # Two generated files (not symlinked — Git Bash/MSYS `ln -s` silently deep-copies):
 #   sessions/<sid>.preamble.sh — this session's own root; concurrent sessions never share it.
 #   preamble.sh (next to host.json, so N1_HOST_FILE redirects keep tests isolated) — a
@@ -45,7 +46,7 @@ if command -v cygpath >/dev/null 2>&1; then
     ROOT_POSIX=$(cygpath -u "$N1_ROOT_DIR" 2>/dev/null) || true
     [ -n "$ROOT_POSIX" ] || ROOT_POSIX=$N1_ROOT_DIR
 fi
-SESSIONS_DIR="${N1_STATE_DIR:-$HOME/.n1}/sessions"
+SESSIONS_DIR="${N1_STATE_DIR:-$HOME/.n1-codex}/sessions"
 if [ -n "$SESSION_FILE" ]; then
     PRE="${SESSION_FILE%.json}.preamble.sh"; PRE_TMP="${PRE}.$$.tmp"
     {
@@ -57,26 +58,22 @@ if [ -n "$SESSION_FILE" ]; then
 fi
 SHIM="$(dirname "$HOST_FILE")/preamble.sh"
 SHIM_TMP="${SHIM}.$$.tmp"
-printf 'source %q/"${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:?N1: no session id in env; restart the session}}.preamble.sh"\n' "$SESSIONS_DIR" \
+printf 'source %q/"${N1_SESSION_ID:-${CODEX_THREAD_ID:?N1: no session id in env; restart the session}}.preamble.sh"\n' "$SESSIONS_DIR" \
     > "$SHIM_TMP" 2>/dev/null && mv -f "$SHIM_TMP" "$SHIM" 2>/dev/null || rm -f "$SHIM_TMP" 2>/dev/null || true
 
 HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 
-HOST ROUTING (authoritative for how N1 skills reach Claude Code):
-- Dispatch persona <name>: Agent tool with subagent_type \"n1:<name>\", prompt, model from n1_resolve_agent (first tab-separated field). Wait for it: the tool call returns the result inline. Fix loops: dispatch a fresh persona per cycle.
-- Dispatch a general-purpose subagent: Agent tool with subagent_type \"general-purpose\".
-- never use subagent_type \"fork\". All dispatches use typed personas or general-purpose subagents with fresh context.
-- Ask the user: AskUserQuestion tool (max 4 questions per call).
-- Load the tool if deferred: ToolSearch with select:<tool>.
-- Invoke skill <x>: Skill tool with n1:<x>.
+HOST ROUTING (Codex):
+- Read ${N1_ROOT_DIR}/references/codex-routing.md before dispatching a persona or invoking another skill. Use only tools and parameters exposed by this session.
+- Never fork full conversation history into a worker. Pass the persona instructions, bounded task, workspace, and required memory paths with fresh context.
 - <N1_ROOT> in skill text means the N1 PLUGIN ROOT above.
 N1 RUN IDENTITY: export N1_SESSION_ID=${N1_SESSION_ID}. Carry it into each helper shell. Session facts: ${SESSION_FILE:-unavailable}.
-COMMIT ATTRIBUTION: The harness attribution reminder (e.g. a Co-Authored-By trailer) yields to user instructions (any CLAUDE.md, global or project, or memory rule). If they forbid or change it, never pass it into a persona prompt and never apply it to your own commits."
+COMMIT ATTRIBUTION: Follow AGENTS.md and user instructions. Do not add attribution or session metadata unless explicitly requested."
 
 CONFIG_FILE=$(n1_config_file)
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    context="N1 plugin is available but not configured for this project. Run /n1:n1-init to set up.
+    context="N1 plugin is available but not configured for this project. Run n1-codex:n1-init to set up.
 
 ${HOST_BLOCK}"
     escaped_context=$(escape_json_val "$context")
@@ -181,7 +178,7 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
     fi
 fi
 
-context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives. When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge, release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
+context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (n1-codex:n1-start, n1-codex:n1-pr, n1-codex:n1-review, n1-codex:n1-ci) over alternatives. When the user starts or requests an N1 run (n1-codex:n1-start, n1-codex:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge, release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
 
 ${HOST_BLOCK}"
 
@@ -302,7 +299,7 @@ elif [ "$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")" = "false" ] || 
 
 LOCAL TESTING OFFER (live Docker e2e is off for this project; ${lt_f} found in the repo root):
 If the user asks for local, docker, or e2e testing (any phrasing), first perform the test they asked for. Then ask once whether to enable live local testing so N1 runs it automatically after review.
-- Yes: run \`source ~/.n1/preamble.sh; f=\$(n1_config_file); jq '.localTesting.enabled = true | .localTesting.autoLive = true' \"\$f\" > \"\$f.tmp\" && cat \"\$f.tmp\" > \"\$f\" && rm -f \"\$f.tmp\"\`
+- Yes: run \`source ~/.n1-codex/preamble.sh; f=\$(n1_config_file); jq '.localTesting.enabled = true | .localTesting.autoLive = true' \"\$f\" > \"\$f.tmp\" && cat \"\$f.tmp\" > \"\$f\" && rm -f \"\$f.tmp\"\`
 - No: do not offer again in this conversation.
 - Only if an N1 ticket is active, append an audit row to the Decision Ledger in its overview.md: | local-testing | scope | C | [asked] | Enable live local testing? | <yes/no> | - | user answer to enable offer | --- |
 Never offer when the user did not ask for local/docker/e2e testing."
@@ -341,7 +338,7 @@ if [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2
         created_epoch=$(date -d "$created" +%s 2>/dev/null || echo 0)
         if [ "$created_epoch" -gt 0 ] && [ $(( now_epoch - created_epoch )) -gt 1209600 ]; then
             pending_context="${pending_context}
-- ${tid}: pending merge is stale (>14 days) — consider /n1:n1-clean"
+- ${tid}: pending merge is stale (>14 days) — consider n1-codex:n1-clean"
             continue
         fi
         # 30-min throttle
@@ -359,11 +356,11 @@ if [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2
         case "$state" in
             MERGED)
                 pending_context="${pending_context}
-- ${tid}: PR #${pr_num} was MERGED externally — finish is pending. Suggested next action: run /n1:n1-finish ${tid}"
+- ${tid}: PR #${pr_num} was MERGED externally — finish is pending. Suggested next action: run n1-codex:n1-finish ${tid}"
                 ;;
             CLOSED)
                 pending_context="${pending_context}
-- ${tid}: PR #${pr_num} was closed without merging — run /n1:n1-finish ${tid} to record it, or /n1:n1-clean"
+- ${tid}: PR #${pr_num} was closed without merging — run n1-codex:n1-finish ${tid} to record it, or n1-codex:n1-clean"
                 ;;
         esac
     done
@@ -383,7 +380,7 @@ if [ -n "$n1_root" ] && [ -d "${n1_root}/queue" ]; then
         context="${context}
 
 N1 QUEUE STATUS: ${queue_line}
-Mention this to the user when relevant (details: /n1:n1-queue --status). Do not act without being asked."
+Mention this to the user when relevant (details: n1-codex:n1-queue --status). Do not act without being asked."
     fi
 fi
 

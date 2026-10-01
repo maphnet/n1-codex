@@ -1,7 +1,6 @@
 ---
 name: n1-release
-description: "Release a version: create git tag and GitHub Release. Usage: /n1:n1-release"
-model: sonnet
+description: "Release a version: create git tag and GitHub Release. Usage: n1-codex:n1-release"
 effort: low
 ---
 
@@ -20,7 +19,7 @@ Standalone invocation is the primary pattern -- no ticket argument required. Pip
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If `N1_HOME` is empty -- N1 is not configured; warn the user and STOP.

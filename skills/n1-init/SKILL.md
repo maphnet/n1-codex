@@ -1,7 +1,6 @@
 ---
 name: n1-init
-description: "Set up N1 for a project. Creates externalized state at ~/.n1/<project>/, config.json, and enriches CLAUDE.md with project conventions."
-model: sonnet
+description: "Set up N1 for a project. Creates externalized state at ~/.n1/<project>/, config.json, and enriches AGENTS.md with project conventions."
 effort: low
 ---
 
@@ -9,7 +8,7 @@ effort: low
 
 ## Overview
 
-Initialize N1 for the current project. This creates the externalized N1 state directory at `~/.n1/<project-name>/`, generates `config.json` with tracker and git settings, configures worktree setup, and optionally enriches CLAUDE.md with detected project conventions. N1_HOME is auto-derived at runtime from the repo name — no git config needed.
+Initialize N1 for the current project. This creates the externalized N1 state directory at `~/.n1/<project-name>/`, generates `config.json` with tracker and git settings, configures worktree setup, and optionally enriches AGENTS.md with detected project conventions. N1_HOME is auto-derived at runtime from the repo name — no git config needed.
 
 **Announce at start:** "I'm using the n1-init skill to set up N1 for this project."
 
@@ -22,17 +21,17 @@ Initialize N1 for the current project. This creates the externalized N1 state di
 Resolve N1_HOME at the start. Use this preamble in every bash block that needs `$N1_ROOT`:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 ## Steps
 
 Execute steps in order. Read each step file and follow its instructions before proceeding to the next.
 
-1. **Prerequisites** — detect existing config, handle migration, targeted upgrade
+1. **Prerequisites** — install Codex personas, reuse existing config, targeted upgrade
    Read `<N1_ROOT>/skills/n1-init/steps/01-prerequisites.md`
 
-2. **Analyze Repository** — detect stack, worktree setup, enrich CLAUDE.md, host checks
+2. **Analyze Repository** — detect stack, worktree setup, enrich AGENTS.md, host checks
    Read `<N1_ROOT>/skills/n1-init/steps/02-analyze-repo.md`
 
 3. **Tracker Setup** — Jira/YouTrack/None, KB configuration, assign-to-creator

@@ -8,7 +8,7 @@ if [ -n "${N1_RUN_ID:-}" ]; then
   echo "BLOCKED: n1-release cannot run inside a pipeline."
 fi
 ```
-If `N1_RUN_ID` is set, the skill is running inside an n1-start pipeline — refuse and STOP immediately. Do not proceed to the confirmation prompt. Report: "Release refused: running inside a pipeline. Use `/n1:n1-release` standalone to create a release."
+If `N1_RUN_ID` is set, the skill is running inside an n1-start pipeline — refuse and STOP immediately. Do not proceed to the confirmation prompt. Report: "Release refused: running inside a pipeline. Use `n1-codex:n1-release` standalone to create a release."
 
 Always shown before any side-effecting action:
 
@@ -59,7 +59,7 @@ If local tag exists but no GitHub release -> proceed to release creation (skip t
 
 # Step 5: Execute
 
-**Before-deploy actions first (both flows below):** when `release-actions.tsv` has `before` rows, and § Parse printed `mode:runbook` (queue or headless run), never walk — report the unticked `before` rows and "Release stopped before tagging: before-deploy actions require confirmation and this is a queue/headless run. Re-run `/n1:n1-release` interactively; ticked actions are not repeated." **STOP.** Otherwise (`mode:walk`), follow `<N1_ROOT>/references/deployment-actions.md` § Walk with `PHASE=before` and `OUT=$N1_HOME/scratch/release-actions.tsv`. This runs before creating the tag or starting the custom procedure. `WALK=aborted` → "Release stopped before tagging: before-deploy actions are not complete. Nothing was tagged or pushed. Re-run `/n1:n1-release`; ticked actions are not repeated." **STOP.**
+**Before-deploy actions first (both flows below):** when `release-actions.tsv` has `before` rows, and § Parse printed `mode:runbook` (queue or headless run), never walk — report the unticked `before` rows and "Release stopped before tagging: before-deploy actions require confirmation and this is a queue/headless run. Re-run `n1-codex:n1-release` interactively; ticked actions are not repeated." **STOP.** Otherwise (`mode:walk`), follow `<N1_ROOT>/references/deployment-actions.md` § Walk with `PHASE=before` and `OUT=$N1_HOME/scratch/release-actions.tsv`. This runs before creating the tag or starting the custom procedure. `WALK=aborted` → "Release stopped before tagging: before-deploy actions are not complete. Nothing was tagged or pushed. Re-run `n1-codex:n1-release`; ticked actions are not repeated." **STOP.**
 
 ## Built-in flow (when `procedure` is null)
 

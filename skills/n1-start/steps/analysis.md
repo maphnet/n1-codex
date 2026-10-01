@@ -7,7 +7,7 @@
 **Assign to creator** (if configured; never steal from an existing assignee): skip if ANY of `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` empty, `ASSIGN_OP` empty, or (when `READ_OP` set) `READ_OP` on `<ID>` shows a non-empty assignee. Else call `GET_USER_OP` then `ASSIGN_OP` (payload per `n1-ticket/steps/02-create.md` Step 8). Failure: log to overview.md `## Progress`, continue — non-fatal.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/cache.sh"; source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/context.sh"
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json"); CACHE_ENABLED="${CACHE_ENABLED:-true}"
 SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME"); CACHE_STATE="cold"
@@ -17,7 +17,9 @@ DESC_QUALITY=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "description_quali
 ASSIGN_TO_CREATOR=$(n1_config_val ".tracker.assignToCreator"); GET_USER_OP=$(n1_config_val ".tracker.operations.getCurrentUser"); ASSIGN_OP=$(n1_config_val ".tracker.operations.assign"); READ_OP=$(n1_config_val ".tracker.operations.readTicket")
 [ "$TIER" = "simple" ] && { [ "$DESC_QUALITY" = "adequate" ] || [ "$DESC_QUALITY" = "weak" ]; } && { [ "$TYPE" = "task" ] || [ "$TYPE" = "chore" ]; } && LITE_MODE=true
 n1_record_decision lite-analysis-gate "$LITE_MODE" '{"all":[{"frontmatter":"tier","eq":"simple"},{"signal":"ticket.description_quality","neq":"empty"},{"signal":"ticket.description_quality","neq":"skeletal"},{"any":[{"frontmatter":"type","eq":"task"},{"frontmatter":"type","eq":"chore"}]}]}' "tier=$TIER" "type=$TYPE" "quality=$DESC_QUALITY"
-IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect analysis)
+AGENT_CONFIG=$(n1_resolve_agent solution-architect analysis)
+SA_MODEL=${AGENT_CONFIG%%$'\t'*}
+SA_EFFORT=${AGENT_CONFIG#*$'\t'}
 n1_write_context
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json"); PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME"); RELATED_CONTEXT=""
 if [ "$RELATED_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then
@@ -41,7 +43,7 @@ Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
 **Fresh:**
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 SNAPSHOT_BODY=$(n1_snapshot_read_body "$SNAPSHOT_PATH"); SNAPSHOT_SHA=$(n1_read_frontmatter "$SNAPSHOT_PATH" "git_sha_short"); SNAPSHOT_AGE_RAW=$(n1_read_frontmatter "$SNAPSHOT_PATH" "generated_at")
 ```
 Spawn SA: "SNAPSHOT (age:{SNAPSHOT_AGE_RAW} sha:{SNAPSHOT_SHA}): {SNAPSHOT_BODY}\n\nAnalyze ticket. No re-scan. Flag SNAPSHOT_DRIFT:<desc>. Write [TICKET]. {directives}"
@@ -49,7 +51,7 @@ Spawn SA: "SNAPSHOT (age:{SNAPSHOT_AGE_RAW} sha:{SNAPSHOT_SHA}): {SNAPSHOT_BODY}
 **Observability** (skip if LITE): append providers; bugs→`### Observability Findings`; append `$RELATED_CONTEXT`.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/cache.sh"; source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/context.sh"; source "$N1_ROOT/lib/memory.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md; n1_read_context
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json"); CACHE_ENABLED="${CACHE_ENABLED:-true}"
@@ -87,7 +89,7 @@ Missing/empty: re-prompt once; fallback. DRIFT: delete snapshot. Write frontmatt
 Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":** add all + ledger rows (use `n1_related_add`+`n1_record_decision` per slug). **"select":** add approved. **"no":** `[asked]` row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/queue.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")

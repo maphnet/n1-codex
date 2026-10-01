@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-unset N1_SESSION_ID CLAUDE_CODE_SESSION_ID
+unset N1_SESSION_ID CODEX_THREAD_ID CLAUDE_CODE_SESSION_ID
 export N1_HOME="$T/home"; mkdir -p "$N1_HOME"
 source "$REPO_ROOT/lib/config.sh"
 source "$REPO_ROOT/lib/frontmatter.sh"
@@ -29,14 +29,15 @@ assert_eq "no temp files left behind" "overview.md" "$(ls -A "$OVD")"
 
 # --- active-run pointer is keyed per session ---
 N1_SESSION_ID=sA n1_active_run_write T-1 run-a /wt/a T-1
-N1_SESSION_ID=sB n1_active_run_write T-2 run-b /wt/b T-2
+CODEX_THREAD_ID=sB n1_active_run_write T-2 run-b /wt/b T-2
 assert_eq "session A reads its own ticket" "T-1" "$(jq -r .ticketId "$(N1_SESSION_ID=sA n1_active_run_file)" 2>/dev/null)"
-assert_eq "session B reads its own ticket" "T-2" "$(jq -r .ticketId "$(N1_SESSION_ID=sB n1_active_run_file)" 2>/dev/null)"
+assert_eq "Codex thread B reads its own ticket" "T-2" "$(jq -r .ticketId "$(CODEX_THREAD_ID=sB n1_active_run_file)" 2>/dev/null)"
 N1_SESSION_ID=sA n1_active_run_clear
 assert_eq "clear removes only this session's pointer" "absent:T-2" \
   "$([ -f "$N1_HOME/active-run.sA.json" ] && echo present || echo absent):$(jq -r .ticketId "$N1_HOME/active-run.sB.json" 2>/dev/null)"
 n1_active_run_write T-3 run-c null T-3
 assert_eq "no session id writes the unkeyed file" "T-3" "$(jq -r .ticketId "$N1_HOME/active-run.json" 2>/dev/null)"
+unset N1_SESSION_ID CODEX_THREAD_ID
 assert_eq "keyed reader falls back to unkeyed file" "$N1_HOME/active-run.json" "$(N1_SESSION_ID=sC n1_active_run_file 2>/dev/null)"
 assert_eq "unsafe session id never becomes a filename" "$N1_HOME/active-run.json" "$(N1_SESSION_ID='../x' n1_active_run_file write 2>/dev/null)"
 

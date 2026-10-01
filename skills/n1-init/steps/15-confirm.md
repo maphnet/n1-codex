@@ -28,12 +28,12 @@ Created:
   ~/.n1/<project-name>/memory/
   N1_HOME auto-derived from repo name (no git config needed)
   .gitignore configured (${WT_ROOT}/ — global or project-level)
-  .claude/settings.json updated (if pinning configured)
+  .codex/agents/n1-*.toml installed (project-scoped personas)
 
-Next: Use /n1:n1-start <ticket-or-description> to begin working on a task.
+Next: Use n1-codex:n1-start <ticket-or-description> to begin working on a task.
 ```
 
-If `tracker.mcp` is not null, append after the summary:
+Always append after the summary:
 ```
-To activate tracker routing, reload the session: type /clear or restart Claude Code.
+Restart Codex to load the project-scoped persona profiles and updated tracker routing.
 ```

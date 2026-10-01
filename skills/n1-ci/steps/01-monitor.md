@@ -11,7 +11,7 @@ Not authenticated → "Run `gh auth login` first." **STOP.**
 ## Step 1: Resolve PR Number
 
 - **Argument** (`#123` or `123`): strip `#`, use directly.
-- **No argument:** `gh pr view --json number,url,headRefName --jq '.number'`. No PR found → "No open PR found. Create one first or specify: `/n1:n1-ci #123`" **STOP.**
+- **No argument:** `gh pr view --json number,url,headRefName --jq '.number'`. No PR found → "No open PR found. Create one first or specify: `n1-codex:n1-ci #123`" **STOP.**
 
 Capture PR number and URL.
 
@@ -52,7 +52,7 @@ If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP
 Poll via `lib/poll.sh` (internal 30s loop, 8-minute chunks):
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/poll.sh"
 n1_wait_ci_checks <PR#> <remaining-minutes>
 ```
@@ -75,7 +75,7 @@ All checks `conclusion: SUCCESS`/`NEUTRAL`/`SKIPPED`:
 - Report "All CI checks passed."
 - **Finish chaining (pipeline only):** when invoked from n1-start, decide with the same helper as the n1-start finish gate (so CI and no-CI repos reach the same outcome):
   ```bash
-  source ~/.n1/preamble.sh
+  source ~/.n1-codex/preamble.sh
   if n1_finish_enabled; then echo "chain:yes"; else echo "chain:no"; fi
   ```
   `chain:yes` → continue into n1:n1-finish. `chain:no` → do not chain. Standalone runs never chain. Never chain into release.

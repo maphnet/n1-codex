@@ -2,7 +2,7 @@
 
 ## Step 4: Push and Create PR
 
-When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge, release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
+When the user starts or requests an N1 run (n1-codex:n1-start, n1-codex:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge, release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
 
 `prMode` already resolved (only `"draft"` or `"ready"` reaches here).
 
@@ -44,7 +44,7 @@ List the conflicting files (from `git status` or the rebase output), print a cle
 
 ```
 Rebase conflicts detected — push halted.
-Resolve the following conflicts manually, then re-run /n1:n1-pr:
+Resolve the following conflicts manually, then re-run n1-codex:n1-pr:
   <list conflicting files>
 ```
 
@@ -77,7 +77,7 @@ If `tracker.mcp` is not null:
 2. **Add comment:** `mcp__<tracker.mcp>__<operations.addComment>` — body: `PR created: <PR_URL>`
 3. **Release queue tag** (queue children only): a ticket with a PR is no longer pending for the queue.
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    printf 'TAG=%s\nOVERVIEW=%s\n' "${N1_QUEUE_TAG:-}" "$N1_HOME/memory/$ID/overview.md"
    ```
    Empty `TAG` -> skip (not launched by a tag-mode queue). Otherwise read and follow `<N1_ROOT>/skills/n1-queue/procedures/release-tag.md` with `ID`, `TAG`, `OVERVIEW` from the output above.
@@ -92,7 +92,7 @@ If N1 memory exists: update `overview.md` (mark PR done, add URL), add `docs_upd
 
 Read ticket URL:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" 2>/dev/null || echo "")
 ```
 
@@ -121,5 +121,5 @@ Procedure for a follow-up request:
 
 ## Integration
 
-**Called by:** n1-start (after review loop + local testing), standalone `/n1:n1-pr`
+**Called by:** n1-start (after review loop + local testing), standalone `n1-codex:n1-pr`
 **Invokes:** n1 agent: tech-writer (Phase 1 doc update + Phase 2 PR content), developer (post-PR follow-ups); inline: git, gh, tracker MCP

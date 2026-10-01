@@ -2,7 +2,6 @@
 name: n1-review-response
 description: "Respond to PR review comments. Verifies each comment against the codebase, fixes valid issues via developer agent, and posts inline rejection replies for invalid ones."
 argument-hint: "[PR#]"
-model: sonnet
 effort: medium
 ---
 
@@ -17,7 +16,7 @@ Three-phase on-demand skill: **fetch → verify → act**. Fetches all open revi
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.
@@ -27,7 +26,7 @@ Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HO
 ## Model Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 
