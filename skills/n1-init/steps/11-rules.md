@@ -1,12 +1,12 @@
-<!-- Purpose: Generate starter project rules and optionally migrate CLAUDE.md behavioral conventions. -->
+<!-- Purpose: Generate starter project rules and optionally migrate AGENTS.md behavioral conventions. -->
 
 ## Rules Configuration
 
-Ask whether N1 should generate project rules — authored, checkable conventions that drive review gates and deny hooks. **Default is Yes** for new setups, presented after all other config is written.
+Ask whether N1 should generate project rules — authored, checkable conventions that drive review gates. Generated deny hooks are unsupported in Codex milestone 1. Preserve existing shared deny-hook files and Claude settings. **Default is Yes** for new setups, presented after all other config is written.
 
 ```
 N1 can generate project rules from what it detects about your project.
-Rules are checkable conventions — violations block reviews or deny tool calls.
+Gate rules block reviews. Deny rules can be stored, but their tool-call enforcement is unsupported in Codex milestone 1.
 1 — Yes, generate starter rules (recommended)
 2 — No, skip rules for now
 ```
@@ -71,44 +71,35 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 
 4. After all proposals: show count of accepted rules. If > 10, warn about cost-of-compliance.
 
-5. If any accepted rules have `enforcement: deny`:
-   ```bash
-   source ~/.n1/preamble.sh
-   source "$N1_ROOT/lib/rules.sh"
-   HOOK_DIR="$N1_HOME/hooks"
-   mkdir -p "$HOOK_DIR"
-   HOOK_PATH="$HOOK_DIR/rules-deny.sh"
-   n1_generate_deny_hook "$RULES_DIR" "$HOOK_PATH"
-   n1_deny_hook_register "$HOOK_PATH"
-   ```
-   Tell the user: "Deny hook installed — matching tool calls will be blocked."
+5. If any accepted rules have `enforcement: deny`, report: "Generated deny hooks are unsupported in Codex milestone 1; deny rules were saved without tool-call enforcement. Existing shared rules-deny.sh and Claude settings remain unchanged." **STOP the deny-hook sub-flow before creating hook directories, generating, registering, deregistering, or deleting hooks.** Continue with gate-rule setup and the remaining init steps.
 
-### CLAUDE.md Convention Migration (conditional)
+### AGENTS.md Convention Migration (conditional)
 
 **Only show this section when at least one rule was created in the Rules Configuration step above.**
 
-Scan CLAUDE.md for behavioral convention blocks — lines that prescribe behavior (imperative mood: "always", "never", "must", "use X for Y") rather than state facts. For each identified block:
+Scan AGENTS.md for behavioral convention blocks — lines that prescribe behavior (imperative mood: "always", "never", "must", "use X for Y") rather than state facts. For each identified block:
 
 ```
-Found behavioral convention in CLAUDE.md:
+Found behavioral convention in AGENTS.md:
 
   > <quoted block>
 
 This could become a rule. Extract it?
 1 — Yes, extract as gate rule
 2 — Yes, extract as deny rule (if mechanically checkable)
-3 — No, leave in CLAUDE.md
+3 — No, leave in AGENTS.md
 ```
 
-- **1 or 2:** Create a rule file, ask for `applies_to`, then ask:
+- **2:** Report that deny enforcement is unsupported in Codex milestone 1. Keep the behavioral convention in AGENTS.md and stop this extraction sub-flow before any hook action.
+- **1:** Create a gate rule file, ask for `applies_to`, then ask:
   ```
-  Remove this convention from CLAUDE.md now that it's a rule?
-  1 — Yes, remove from CLAUDE.md
+  Remove this convention from AGENTS.md now that it's a rule?
+  1 — Yes, remove from AGENTS.md
   2 — No, keep in both places
   ```
 - **3:** Leave in place
 
-**Do NOT add any "Project Rules" section to CLAUDE.md.** Do NOT remove factual content — only behavioral prescriptions the user explicitly chose to remove.
+**Do NOT add any "Project Rules" section to AGENTS.md.** Do NOT remove factual content — only behavioral prescriptions the user explicitly chose to remove.
 
 ### On reconfiguration (n1-init re-run):
 
@@ -125,13 +116,6 @@ Current rules:
 - **1** → leave unchanged.
 - **2** → re-run default rule seeding (step 2b) and detection-based rule generation (step 3). Both skip rules that already exist by name in `$RULES_DIR/`.
 
-**Repo→private migration:** If rules exist at `<root>/.n1/rules/` (legacy repo mode), detect and offer:
-```
-Found rules in <root>/.n1/rules/ (legacy repo mode).
-Rules now always live in $N1_HOME/rules/.
-1 — Move rules to $N1_HOME/rules/
-2 — Leave as-is (rules will not be discovered)
-```
-If 1: move all `.rule.md` files, regenerate deny hook at new location, deregister old hook path.
+**Legacy repo rules:** If rules exist at `<root>/.n1/rules/`, report their location and leave them in place. Codex does not migrate shared state or regenerate/deregister legacy deny hooks; use the original N1 plugin for that operation.
 
 If `rules` is absent from the current config, run the fresh-setup flow above. Run **Analyze Repository** first if it has not already been run this session (rules starter generation needs detection results).

@@ -3,7 +3,7 @@
 ## Isolation Mode Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 WORKTREE_MODE=$(n1_config_val '.worktree.mode'); EXTERNAL_WORKTREE=false
 if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then EXTERNAL_WORKTREE=true; USE_WORKTREE=false
 elif [ "$BRANCH_FLAG" = "true" ] || [ "$WORKTREE_MODE" = "branch" ]; then USE_WORKTREE=false
@@ -26,7 +26,7 @@ else USE_WORKTREE=true; fi
 
 1. `N1_HOME` must be absolute; relative→error+STOP. 2. Compute target. Check `git worktree list --porcelain`: exists→resume. 3. Not exists:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 MAIN_CHECKOUT=$(git rev-parse --show-toplevel); WT_ROOT=$(n1_worktree_root)
 WORKTREE_PATH="$MAIN_CHECKOUT/$WT_ROOT/<ID>"; DEFAULT=<git.defaultBranch>
 git branch <TARGET> $DEFAULT 2>/dev/null || true
@@ -44,7 +44,7 @@ Idempotent, marker-guarded. `USE_WORKTREE=false`→return. `SETUP=$(n1_config_va
 
 `oldId==newId`→return. Move memory dir, rewrite `ticket:` frontmatter, `git branch -m`, `git worktree move`. Update active-run:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_active_run_write "$newId" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
 ```
 

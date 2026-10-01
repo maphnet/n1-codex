@@ -4,7 +4,7 @@
 
 - **No arguments + on a feature branch** → Review Loop mode
 - **Called from n1-start** → Review Loop mode
-- **PR number provided** (e.g., `/n1:n1-review #340`) → Advisory mode
+- **PR number provided** (e.g., `n1-codex:n1-review #340`) → Advisory mode
 
 ## Priority Levels
 
@@ -49,9 +49,13 @@ Read N1 memory if available:
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (if SECURITY_RELEVANT)
 
 ```bash
-source ~/.n1/preamble.sh
-IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
-IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
+source ~/.n1-codex/preamble.sh
+AGENT_CONFIG=$(n1_resolve_agent code-reviewer review)
+CODE_REVIEWER_MODEL=${AGENT_CONFIG%%$'\t'*}
+CODE_REVIEWER_EFFORT=${AGENT_CONFIG#*$'\t'}
+AGENT_CONFIG=$(n1_resolve_agent security-reviewer review)
+SECURITY_REVIEWER_MODEL=${AGENT_CONFIG%%$'\t'*}
+SECURITY_REVIEWER_EFFORT=${AGENT_CONFIG#*$'\t'}
 ```
 
 Pass each selected reviewer its resolved model/effort pair.
@@ -130,7 +134,7 @@ After developer fixes are applied, increment the internal cycle counter and go b
 Also record each confirmed Critical/High finding's fingerprint after every review pass (BEFORE the convergence check):
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 # For each confirmed Critical/High finding:
@@ -141,7 +145,7 @@ n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "<cy
 **Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `cycle > 0`:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 CYCLE=<current review_fix_cycle value>

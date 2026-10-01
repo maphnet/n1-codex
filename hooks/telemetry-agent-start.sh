@@ -8,7 +8,7 @@ source "${SCRIPT_DIR}/../lib/telemetry.sh"
 N1_HOME=$(n1_home)
 INPUT=$(cat)
 N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
-export N1_SESSION_ID="${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+export N1_SESSION_ID="${N1_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 n1_read_lock "$N1_HOME/memory" || exit 0
 
 AGENT_ID=$(printf '%s' "$INPUT" | n1_hook_field agent_id)

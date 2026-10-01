@@ -1,8 +1,7 @@
 ---
 name: n1-estimate
-description: "Estimate an existing ticket or task. Runs analysis pipeline then writes complexity tier and delivery time to tracker. Usage: /n1:n1-estimate TRID-510 or /n1:n1-estimate need CSV export for users"
+description: "Estimate an existing ticket or task. Runs analysis pipeline then writes complexity tier and delivery time to tracker. Usage: n1-codex:n1-estimate TRID-510 or n1-codex:n1-estimate need CSV export for users"
 argument-hint: "<ticket-id or task description>"
-model: sonnet
 effort: low
 ---
 
@@ -19,7 +18,7 @@ Estimate task complexity and delivery time for a ticket or task description. Run
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.

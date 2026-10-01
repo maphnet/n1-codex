@@ -1,0 +1,18 @@
+{
+  "name": "n1-codex",
+  "version": "0.1.0",
+  "description": "Codex-native development workflows sharing N1 project configuration and memory.",
+  "author": {
+    "name": "N1 Team"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "N1 Codex",
+    "shortDescription": "Use N1 Codex in Codex.",
+    "longDescription": "Plan, implement, verify, and review work through native Codex agents with existing N1 project state.",
+    "developerName": "N1 Team",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use N1 Codex."
+  }
+}

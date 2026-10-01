@@ -10,7 +10,7 @@ INTAKE_RESULT=$(echo "$AGENT_OUTPUT" | grep -m1 '^intake-result: ' | sed 's/^int
 Empty: `{"title":null,"tags":[],"type":"task"}`. Parse `TITLE TAGS TYPE CLOUD_ID LINKED_ERROR`. `LINKED_ERROR` → `TYPE=bug`, `LINKED_ERROR_URL`.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 TYPE_OVERRIDE=""; n1_parse_type_arg "$USER_INPUT" 2>/dev/null && TYPE_OVERRIDE=$(n1_parse_type_arg "$USER_INPUT")
 [ "$INVESTIGATE_FLAG" = "true" ] && TYPE_OVERRIDE="investigation"
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
@@ -32,7 +32,7 @@ ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"
 **Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): skip if `INVESTIGATE_FLAG=true`+braindump. `MP=auto`→create+ledger. `MP=ask`→"Create ticket? Yes/No". Yes→`createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/context.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
@@ -55,7 +55,7 @@ Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/renam
 **Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=start`, `TEXT` = title + description from ticket.md, `SELF_ID=<ID>`, `OVERVIEW=$N1_HOME/memory/<ID>/overview.md` (cached; skipped on resume and in queue children — resolved at plan time). **Stop** → end the run as the procedure says.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 CFG_TIER=$(n1_config_val '.testCoverage.tier' "${N1_HOME}/config.json"); EST=$(n1_config_val '.estimation.enabled' "${N1_HOME}/config.json")
 LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json"); PR=$(n1_config_val '.planReview.reviewPlan' "${N1_HOME}/config.json")
 echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"'"${CFG_TIER:-maintain}"'","estimation_enabled":'"${EST:-false}"',"local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":'"${PR:-true}"'}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"

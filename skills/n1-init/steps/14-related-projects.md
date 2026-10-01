@@ -7,7 +7,7 @@ Discover and configure related projects — other N1-managed repositories that t
 ### Step 1 — Enumerate candidates
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 # Derive both candidate self-slugs (remote-URL and directory-name), each sanitized the same way.
 # n1_home() resolves N1_HOME by matching whichever slug has an existing ~/.n1/<slug>/ dir,
 # so we must skip a peer that matches EITHER to avoid adding self when the two slugs differ.
@@ -48,13 +48,13 @@ If `$CANDIDATES_FILE` is empty (all projects lack `repoPath` or only self exists
 For each candidate, search the current repo for references. Classify matches by confidence:
 
 - **High confidence** (direct import/require, shared proto path, explicit API client): auto-add with `source: "auto"`
-- **Medium confidence** (env var or config reference, docker-compose dependency): read candidate's CLAUDE.md to confirm relationship before presenting
+- **Medium confidence** (env var or config reference, docker-compose dependency): read candidate's AGENTS.md to confirm relationship before presenting
 - **Low confidence** (vague name overlap, transitive): skip
 
 Search implementation:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/related.sh"
 N1_HOME=$(n1_home)
 CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
@@ -109,7 +109,7 @@ while IFS=$'\t' read -r c_slug c_service c_repo c_bare; do
                 confidence="medium"
             fi
         fi
-        # A bare registration has no tracker/CLAUDE.md context to corroborate the match,
+        # A bare registration has no tracker/AGENTS.md context to corroborate the match,
         # so it is never auto-added: cap it at medium and route it to the confirm prompt.
         if [ "$c_bare" = "true" ] && [ "$confidence" = "high" ]; then
             confidence="medium"
@@ -156,7 +156,7 @@ Do you want to manually specify related projects? (List N1 project slugs, or ski
 `config.json` already exists at this point (written by `## Write Configuration and Structure`). Resolve `N1_HOME`, source `lib/related.sh`, call `n1_related_add` for each approved project, then update `enabled` — all in one block:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 CFG="$N1_HOME/config.json"
 source "$N1_ROOT/lib/related.sh"
 # For each approved project (auto-added high-confidence or user-confirmed medium-confidence):

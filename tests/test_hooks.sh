@@ -5,8 +5,10 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-unset CLAUDE_CODE_SESSION_ID N1_SESSION_ID
-export N1_HOME="$T/home" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+unset CODEX_THREAD_ID N1_SESSION_ID N1_PLUGIN_ROOT CLAUDE_PLUGIN_ROOT PLUGIN_ROOT
+export HOME="$T/isolated-home"
+mkdir -p "$HOME"
+export N1_HOME="$T/home" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" CODEX_PLUGIN_ROOT="$REPO_ROOT"
 mkdir -p "$N1_HOME"
 cat > "$N1_HOME/config.json" <<'EOF'
 {"planReview":{"requirePlanApproval":true},"autonomy":{"brainstorm":"auto","acceptanceGate":"auto"}}
@@ -15,7 +17,7 @@ EOF
 # enforce-agent-policy: no python → systemMessage once
 FAKEBIN="$T/bin"; mkdir -p "$FAKEBIN"
 for c in bash jq grep sed cat dirname basename printf head tr awk mv rm mkdir date; do p=$(command -v $c) && ln -sf "$p" "$FAKEBIN/$c"; done
-INPUT='{"session_id":"s1","tool_name":"Agent","tool_input":{"subagent_type":"n1:developer"}}'
+INPUT='{"session_id":"s1","tool_name":"spawn_agent","tool_input":{"agent_type":"n1-developer"}}'
 OUT1=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
 OUT2=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
 assert_eq "warns once when python missing" "N1: agent model enforcement skipped (no Python interpreter)" "$(echo "$OUT1" | jq -r .systemMessage)"
@@ -48,25 +50,25 @@ set -e
 assert_eq "hook exits 0 with missing pending-merge fields" "0" "$RC3"
 CTX3=$(echo "$OUT3" | jq -e -r '.hookSpecificOutput.additionalContext' 2>/dev/null) || CTX3=""
 assert_eq "additionalContext non-empty with missing fields" "present" "$([ -n "$CTX3" ] && echo present || echo missing)"
-case "$CTX3" in *"never use subagent_type"*) assert_eq "fork prohibition text present" present present;; *) assert_eq "fork prohibition text present" present missing;; esac
+case "$CTX3" in *"Never fork"*) assert_eq "fork prohibition text present" present present;; *) assert_eq "fork prohibition text present" present missing;; esac
 case "$CTX3" in *"COMMIT ATTRIBUTION"*) assert_eq "commit attribution text present" present present;; *) assert_eq "commit attribution text present" present missing;; esac
 rm -rf "$MEM3"
 
 # --- enforce-agent-policy ---------------------------------------------------
 FX="$REPO_ROOT/tests/fixtures/hooks"
 cat > "$N1_HOME/config.json" <<'EOF'
-{"models":{"developer":{"claude-code":"opus"}}}
+{"models":{"developer":{"codex":"gpt-6.1-sol"}}}
 EOF
 POLICY="$REPO_ROOT/hooks/enforce-agent-policy.sh"
-OUT=$(bash "$POLICY" < "$FX/claude/pretooluse-spawn.json")
-assert_eq "claude spawn override model" "opus" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.model)"
+OUT=$(bash "$POLICY" < "$FX/codex/pretooluse-spawn.json")
+assert_eq "codex spawn override model" "gpt-6.1-sol" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.model)"
 set +e
-bash "$POLICY" < "$FX/claude/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
+bash "$POLICY" < "$FX/codex/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
 set -e
-assert_eq "claude persona denial exit 2" "2" "$RC"
-assert_eq "claude persona denial reason" "N1: persona code-reviewer may not use tool Edit (allowed: Glob, Grep, Read)" "$(cat "$T/err")"
-OUT=$(bash "$POLICY" < "$FX/claude/pretooluse-persona-allowed.json"); RC=$?
-assert_eq "claude Grep allowed for read-only persona" "0:" "$RC:$OUT"
+assert_eq "codex persona denial exit 2" "2" "$RC"
+assert_eq "codex persona denial reason" "N1: persona code-reviewer may not use tool Edit (allowed: Glob, Grep, Read)" "$(cat "$T/err")"
+OUT=$(bash "$POLICY" < "$FX/codex/pretooluse-persona-allowed.json"); RC=$?
+assert_eq "codex exec_command allowed for read-only persona" "0:" "$RC:$OUT"
 OUT=$(echo '{"tool_name":"Read","agent_type":"general-purpose","tool_input":{}}' | bash "$POLICY"); RC=$?
 assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
 
@@ -153,40 +155,33 @@ assert_eq "queue: backslash-split git denied"       2 "$(gate RUN1 "$GR" 'g\it p
 assert_eq "queue: quote-split push branch denied"   2 "$(gate RUN1 "$GR" "git push origin ma''in")"
 rm -f "$N1_HOME/config.json"
 
-# --- telemetry hooks accept the Claude Code persona prefix -----------------
-MEM3="$N1_HOME/memory/T-20/telemetry"; mkdir -p "$MEM3"
-mkdir -p "$MEM3/locks"
-echo '{"run_id":"n1-run-claude","n1_version":"3.0.0","host":"claude-code","session_id":"s-claude-1"}' > "$MEM3/locks/n1-run-claude.json"
-bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/claude/subagent-start.json"
-assert_eq "claude agent start recorded" "n1:developer" "$(jq -r .agent_type "$MEM3/raw/agents/n1-run-claude.jsonl")"
-
 # --- session-start: host.json, routing block ------------------------------
 export N1_HOST_FILE="$T/host.json"
 rm -f "$N1_HOST_FILE"; rm -f "$N1_HOME/config.json"
-OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+OUT=$(CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/codex/session-start.json")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
-assert_eq "host.json written (claude)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
+assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
 assert_eq "host.json pluginRoot" "$REPO_ROOT" "$(jq -r .pluginRoot "$N1_HOST_FILE")"
-TRAMPOLINE="source $N1_STATE_DIR/sessions/\"\${N1_SESSION_ID:-\${CLAUDE_CODE_SESSION_ID:?N1: no session id in env; restart the session}}.preamble.sh\""
+TRAMPOLINE="source $N1_STATE_DIR/sessions/\"\${N1_SESSION_ID:-\${CODEX_THREAD_ID:?N1: no session id in env; restart the session}}.preamble.sh\""
 assert_eq "constant trampoline written next to host.json" "$TRAMPOLINE" "$(cat "$T/preamble.sh" 2>/dev/null)"
 assert_eq "per-session preamble written for the payload session id" "N1_ROOT=$REPO_ROOT
-source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$N1_STATE_DIR/sessions/s-claude-1.preamble.sh" 2>/dev/null)"
+source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$N1_STATE_DIR/sessions/s-codex-1.preamble.sh" 2>/dev/null)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
-case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
+case "$CTX" in *"HOST ROUTING (Codex)"*"codex-routing.md"*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
 echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
 PROJ="$T/proj"; mkdir -p "$PROJ"
-PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/claude/session-start.json")
-OUT=$(echo "$PAYLOAD" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/codex/session-start.json")
+OUT=$(echo "$PAYLOAD" | CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
-assert_eq "host.json written (claude, configured)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
-case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block (configured)" ok ok;; *) assert_eq "claude routing block (configured)" ok "$CTX";; esac
+assert_eq "host.json written (codex, configured)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
+case "$CTX" in *"HOST ROUTING (Codex)"*"codex-routing.md"*) assert_eq "codex routing block (configured)" ok ok;; *) assert_eq "codex routing block (configured)" ok "$CTX";; esac
 case "$CTX" in *"that is their explicit request to commit, push the feature branch, and create the PR"*"does not authorize merge, release, or pushing the default branch"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
 {"ticketId":"T-30","runId":"n1-run-c","worktreePath":null,"branch":"T-30"}
 AREOF
 mkdir -p "$N1_HOME/memory/T-30"; printf -- '---\nstep: review\ntype: task\n---\n## Context\nctx line\n' > "$N1_HOME/memory/T-30/overview.md"
-OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
 case "$CTX" in *"n1_*_val helpers, never cat config.json"*) assert_eq "compact hint points at n1_*_val helpers (N1-57)" ok ok;; *) assert_eq "compact hint points at n1_*_val helpers (N1-57)" ok "$CTX";; esac
@@ -194,29 +189,29 @@ rm -f "$N1_HOME/active-run.json"
 # compaction restore reads this session's keyed pointer, not another session's (NP-206)
 echo '{"ticketId":"T-31","runId":"n1-run-o","worktreePath":null,"branch":"T-31"}' > "$N1_HOME/active-run.json"
 echo '{"ticketId":"T-30","runId":"n1-run-c","worktreePath":null,"branch":"T-30"}' > "$N1_HOME/active-run.s1.json"
-OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"Active ticket: T-30"*) assert_eq "compaction restore uses session-keyed active-run" ok ok;; *) assert_eq "compaction restore uses session-keyed active-run" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json" "$N1_HOME/active-run.s1.json"
 # --- session-start: prMode "skip" is a valid value and is not migrated (NP-202) ---
 echo '{"telemetry":{"enabled":false},"git":{"prMode":"skip"}}' > "$N1_HOME/config.json"
-echo '{"session_id":"s-prmode","source":"startup"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-prmode","source":"startup"}' | CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "session-start keeps prMode skip" "skip" "$(jq -r .git.prMode "$N1_HOME/config.json")"
 unset N1_HOST_FILE
 
 # --- session-start: plugin-root preamble shim generation (NP-192) ------------
 RL="$T/rootlink"; mkdir -p "$RL"
 SP="$N1_STATE_DIR/sessions/s-root.preamble.sh"
-echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "shim written for first root" "N1_ROOT=$REPO_ROOT" "$(head -1 "$SP" 2>/dev/null)"
 TRAMP1=$(cat "$RL/preamble.sh")
 OTHER_ROOT="$T/otherroot"; mkdir -p "$OTHER_ROOT/lib"
-echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" CLAUDE_PLUGIN_ROOT="$OTHER_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" CODEX_PLUGIN_ROOT="$OTHER_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "shim rewritten for a different plugin root" "N1_ROOT=$OTHER_ROOT" "$(head -1 "$SP" 2>/dev/null)"
 assert_eq "trampoline byte-identical across roots" "$TRAMP1" "$(cat "$RL/preamble.sh")"
 assert_eq "no shim tmp files left behind" "" "$(ls "$RL"/*.tmp "$N1_STATE_DIR/sessions"/*.tmp 2>/dev/null)"
 RO="$T/rodir"; mkdir -p "$RO"; chmod 555 "$RO"
-RC=0; echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RO/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || RC=$?
+RC=0; echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RO/host.json" CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || RC=$?
 chmod 755 "$RO"
 assert_eq "hook exits 0 when shim dir is unwritable" "0" "$RC"
 CYGDIR="$T/cygbin"; mkdir -p "$CYGDIR"
@@ -225,15 +220,15 @@ cat > "$CYGDIR/cygpath" <<'CYGEOF'
 [ "$1" = "-u" ] && echo "/c/fake/root"
 CYGEOF
 chmod +x "$CYGDIR/cygpath"
-echo '{"session_id":"s-root","source":"startup"}' | PATH="$CYGDIR:$PATH" N1_HOST_FILE="$RL/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-root","source":"startup"}' | PATH="$CYGDIR:$PATH" N1_HOST_FILE="$RL/host.json" CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "shim uses cygpath-converted POSIX root when cygpath is present" "N1_ROOT=/c/fake/root" "$(head -1 "$SP" 2>/dev/null)"
 
 # --- session-start: shim round-trip for a plugin root with special characters (NP-192/CR-1,TQ-1) ---
 SPECIAL_ROOT="$T/it's a \$root dir"; mkdir -p "$SPECIAL_ROOT/lib"
 printf '#!/usr/bin/env bash\n# minimal stub — no-op, real N1_ROOT resolution already done by the shim\n' > "$SPECIAL_ROOT/lib/preamble.sh"
 SPECIAL_HOST_DIR="$T/specialhost"; mkdir -p "$SPECIAL_HOST_DIR"
-echo '{"session_id":"s-special","source":"startup"}' | N1_HOST_FILE="$SPECIAL_HOST_DIR/host.json" CLAUDE_PLUGIN_ROOT="$SPECIAL_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-RESOLVED=$(CLAUDE_CODE_SESSION_ID=s-special bash -c "source \"$SPECIAL_HOST_DIR/preamble.sh\"; printf '%s' \"\$N1_ROOT\"" 2>/dev/null)
+echo '{"session_id":"s-special","source":"startup"}' | N1_HOST_FILE="$SPECIAL_HOST_DIR/host.json" CODEX_PLUGIN_ROOT="$SPECIAL_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+RESOLVED=$(CODEX_THREAD_ID=s-special bash -c "source \"$SPECIAL_HOST_DIR/preamble.sh\"; printf '%s' \"\$N1_ROOT\"" 2>/dev/null)
 assert_eq "shim resolves special-character root exactly" "$SPECIAL_ROOT" "$RESOLVED"
 
 # cygpath exits 0 with empty output must leave the shim containing the original root (CR-1)
@@ -243,7 +238,7 @@ cat > "$EMPTYCYG/cygpath" <<'CYGEOF2'
 exit 0
 CYGEOF2
 chmod +x "$EMPTYCYG/cygpath"
-echo '{"session_id":"s-root","source":"startup"}' | PATH="$EMPTYCYG:$PATH" N1_HOST_FILE="$RL/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-root","source":"startup"}' | PATH="$EMPTYCYG:$PATH" N1_HOST_FILE="$RL/host.json" CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "shim falls back to original root when cygpath outputs nothing" "N1_ROOT=$REPO_ROOT" "$(head -1 "$SP" 2>/dev/null)"
 
 # --- session-start: concurrent sessions keep their own root and host (NP-204) ---
@@ -253,23 +248,23 @@ printf 'N1_R2_MARK=1\n' > "$R2/lib/preamble.sh"
 resolve() { # <env assignments...> — source the trampoline like a snippet would
     env "$@" bash -c "source \"$CS/preamble.sh\" && printf '%s' \"\$N1_ROOT\"" 2>/dev/null
 }
-echo '{"session_id":"s-a","source":"startup"}' | N1_HOST_FILE="$CS/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-echo '{"session_id":"s-b","source":"startup"}' | N1_HOST_FILE="$CS/host.json" CLAUDE_PLUGIN_ROOT="$R2" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-assert_eq "session A resolves its own root after B started" "$REPO_ROOT" "$(resolve CLAUDE_CODE_SESSION_ID=s-a)"
-assert_eq "session B resolves its own root" "$R2" "$(resolve CLAUDE_CODE_SESSION_ID=s-b)"
-echo '{"session_id":"s-a","source":"compact"}' | N1_HOST_FILE="$CS/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-assert_eq "session B unaffected by A's compact" "$R2" "$(resolve CLAUDE_CODE_SESSION_ID=s-b)"
-assert_eq "explicit N1_SESSION_ID wins over the harness id" "$R2" "$(resolve N1_SESSION_ID=s-b CLAUDE_CODE_SESSION_ID=s-a)"
-assert_eq "session B host recorded per session" "claude-code" "$(jq -r .host "$N1_STATE_DIR/sessions/s-b.json")"
-assert_eq "session A host recorded per session" "claude-code" "$(jq -r .host "$N1_STATE_DIR/sessions/s-a.json")"
+echo '{"session_id":"s-a","source":"startup"}' | N1_HOST_FILE="$CS/host.json" CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-b","source":"startup"}' | N1_HOST_FILE="$CS/host.json" CODEX_PLUGIN_ROOT="$R2" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "session A resolves its own root after B started" "$REPO_ROOT" "$(resolve CODEX_THREAD_ID=s-a)"
+assert_eq "session B resolves its own root" "$R2" "$(resolve CODEX_THREAD_ID=s-b)"
+echo '{"session_id":"s-a","source":"compact"}' | N1_HOST_FILE="$CS/host.json" CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "session B unaffected by A's compact" "$R2" "$(resolve CODEX_THREAD_ID=s-b)"
+assert_eq "explicit N1_SESSION_ID wins over the harness id" "$R2" "$(resolve N1_SESSION_ID=s-b CODEX_THREAD_ID=s-a)"
+assert_eq "session B host recorded per session" "codex" "$(jq -r .host "$N1_STATE_DIR/sessions/s-b.json")"
+assert_eq "session A host recorded per session" "codex" "$(jq -r .host "$N1_STATE_DIR/sessions/s-a.json")"
 RC=0; ERR=$(bash -c "source \"$CS/preamble.sh\"" 2>&1) || RC=$?
 assert_eq "no session id in env fails loudly" "127" "$RC"
 case "$ERR" in *"N1: no session id"*) assert_eq "no-session-id message" ok ok;; *) assert_eq "no-session-id message" ok "$ERR";; esac
-RC=0; bash -c "CLAUDE_CODE_SESSION_ID=s-nope source \"$CS/preamble.sh\"" 2>/dev/null || RC=$?
+RC=0; bash -c "CODEX_THREAD_ID=s-nope source \"$CS/preamble.sh\"" 2>/dev/null || RC=$?
 assert_eq "unknown session id fails instead of using another root" "1" "$RC"
 # stale session files are pruned after 7 days; fresh ones survive
 touch -d '10 days ago' "$N1_STATE_DIR/sessions/s-old.json" "$N1_STATE_DIR/sessions/s-old.preamble.sh"
-echo '{"session_id":"s-a","source":"resume"}' | N1_HOST_FILE="$CS/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-a","source":"resume"}' | N1_HOST_FILE="$CS/host.json" CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "stale session files pruned" "" "$(ls "$N1_STATE_DIR/sessions"/s-old.* 2>/dev/null)"
 assert_eq "fresh session files kept" "2" "$(ls "$N1_STATE_DIR/sessions"/s-b.* 2>/dev/null | wc -l | tr -d ' ')"
 
@@ -278,7 +273,7 @@ export N1_HOST_FILE="$T/host2.json"
 cat > "$N1_HOME/config.json" <<'EOF'
 {"tracker":{"type":"jira","mcp":"plugin_atlassian_atlassian","versionMcp":"publius-jc-mcp","operations":{"getJiraIssue":"getIssue"}}}
 EOF
-OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+OUT=$(CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/codex/session-start.json")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"publius-jc-mcp"*) assert_eq "versionMcp appears in TRACKER ROUTING" ok ok;; *) assert_eq "versionMcp appears in TRACKER ROUTING" ok "$CTX";; esac
 case "$CTX" in *"mcp__publius-jc-mcp__"*) assert_eq "versionMcp prefix in TRACKER ROUTING" ok ok;; *) assert_eq "versionMcp prefix in TRACKER ROUTING" ok "$CTX";; esac
@@ -286,65 +281,19 @@ case "$CTX" in *"mcp__publius-jc-mcp__"*) assert_eq "versionMcp prefix in TRACKE
 cat > "$N1_HOME/config.json" <<'EOF'
 {"tracker":{"type":"jira","mcp":"plugin_atlassian_atlassian","operations":{"getJiraIssue":"getIssue"}}}
 EOF
-OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+OUT=$(CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/codex/session-start.json")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"NEVER use any other MCP server"*) assert_eq "no versionMcp keeps NEVER directive" ok ok;; *) assert_eq "no versionMcp keeps NEVER directive" ok "$CTX";; esac
 export N1_HOST_FILE="$T/host.json"
 
-# --- session-stop: writes abandon envelope_close when lock exists ----------
-STOP_TICK="T-STOP"
-STOP_MEM="$N1_HOME/memory/$STOP_TICK"
-STOP_TELEM="$STOP_MEM/telemetry"
-mkdir -p "$STOP_TELEM/raw/steps" "$STOP_TELEM/runs"
-mkdir -p "$STOP_TELEM/locks"
-echo '{"run_id":"run-stop-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop"}' > "$STOP_TELEM/locks/run-stop-test.json"
-echo '{"run_id":"run-stop-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop"}' > "$STOP_TELEM/telemetry.lock"
-printf -- '---\ntype: task\ntier: standard\nstep: implementation\n---\n' > "$STOP_MEM/overview.md"
-echo '{"session_id":"s-stop","transcript_path":"/tmp/stop.jsonl"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
-STOP_LINE=$(grep '"envelope_close"' "$STOP_TELEM/raw/steps/run-stop-test.jsonl" 2>/dev/null | tail -1)
-assert_eq "stop hook writes envelope_close" "envelope_close" "$(echo "$STOP_LINE" | jq -r .layer 2>/dev/null)"
-assert_eq "stop hook final_outcome abandoned" "abandoned" "$(echo "$STOP_LINE" | jq -r .final_outcome 2>/dev/null)"
-assert_eq "stop hook type from overview" "task" "$(echo "$STOP_LINE" | jq -r .type 2>/dev/null)"
-assert_eq "stop hook tier from overview" "standard" "$(echo "$STOP_LINE" | jq -r .estimated_tier 2>/dev/null)"
-assert_eq "stop hook removes lock after merge" "false" "$([ -f "$STOP_TELEM/telemetry.lock" ] && echo true || echo false)"
-
-# session-stop: no lock -> silent exit, no crash
-NO_LOCK_MEM="$N1_HOME/memory/T-NOLOCK"
-mkdir -p "$NO_LOCK_MEM"
-echo '{"session_id":"s-no-lock"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null
-assert_eq "stop hook no lock exits clean" "0" "$?"
-
-# --- session-stop: pending background agent -> no terminal envelope_close --
-PEND_TICK="T-STOP-PENDING"
-PEND_MEM="$N1_HOME/memory/$PEND_TICK"
-PEND_TELEM="$PEND_MEM/telemetry"
-mkdir -p "$PEND_TELEM/raw/steps" "$PEND_TELEM/raw/agents" "$PEND_TELEM/runs" "$PEND_TELEM/locks"
-echo '{"run_id":"run-pending-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-pending"}' > "$PEND_TELEM/locks/run-pending-test.json"
-echo '{"run_id":"run-pending-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-pending"}' > "$PEND_TELEM/telemetry.lock"
-printf -- '---\ntype: task\ntier: standard\nstep: implementation\n---\n' > "$PEND_MEM/overview.md"
-echo '{"run_id":"run-pending-test","layer":"agent","event":"start","agent_id":"a1","agent_type":"product-analyst"}' > "$PEND_TELEM/raw/agents/run-pending-test.jsonl"
-echo '{"session_id":"s-stop-pending","transcript_path":"/tmp/pending.jsonl"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
-assert_eq "pending agent: no envelope_close written" "0" \
-    "$(grep -c '"envelope_close"' "$PEND_TELEM/raw/steps/run-pending-test.jsonl" 2>/dev/null)"
-assert_eq "pending agent: lock survives (not removed)" "true" \
-    "$([ -f "$PEND_TELEM/telemetry.lock" ] && echo true || echo false)"
-
-# same run, agent later completes (stop event added) -> abandoned write now fires normally
-echo '{"run_id":"run-pending-test","layer":"agent","event":"stop","agent_id":"a1","agent_type":"product-analyst"}' >> "$PEND_TELEM/raw/agents/run-pending-test.jsonl"
-echo '{"session_id":"s-stop-pending","transcript_path":"/tmp/pending.jsonl"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
-assert_eq "agent resolved: abandoned write fires (regression)" "abandoned" \
-    "$(grep '"envelope_close"' "$PEND_TELEM/raw/steps/run-pending-test.jsonl" 2>/dev/null | tail -1 | jq -r .final_outcome 2>/dev/null)"
-assert_eq "agent resolved: lock removed after merge" "false" \
-    "$([ -f "$PEND_TELEM/telemetry.lock" ] && echo true || echo false)"
-
 # --- session-start: queue digest line (NP-194) --------------------------------
 QD="$N1_HOME/queue/hq"; mkdir -p "$QD"; NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf '{"ts":"%s","queue":"hq","run_id":"R1","event":"ticket_finished","ticket":"T-1","outcome":"pr","pr":"","session":"","duration_s":5,"reason":""}\n{"ts":"%s","queue":"hq","run_id":"R1","event":"escalated","ticket":"T-2","outcome":"","pr":"","session":"","duration_s":null,"reason":""}\n' "$NOW" "$NOW" > "$QD/events.jsonl"
-OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+OUT=$(CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/codex/session-start.json")
 assert_eq "session-start: queue digest line" "1" \
     "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep -c '^N1 QUEUE STATUS: Queue hq: 1 PR, 1 needs you (T-2)$' || true)"
 printf 'garbage\n' > "$QD/events.jsonl"
-OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+OUT=$(CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/codex/session-start.json")
 assert_eq "session-start: corrupt events -> no digest, valid JSON" "0" \
     "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep -c 'N1 QUEUE STATUS' || true)"
 rm -rf "$N1_HOME/queue"
@@ -353,7 +302,7 @@ rm -rf "$N1_HOME/queue"
 LTP="$T/ltproj"; mkdir -p "$LTP"; touch "$LTP/compose.yaml"
 has_offer() {
   local ctx
-  ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"$LTP\",\"source\":\"startup\"}" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext)
+  ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"$LTP\",\"source\":\"startup\"}" | CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext)
   case "$ctx" in *"LOCAL TESTING OFFER"*) echo yes;; *) echo no;; esac
 }
 echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
@@ -368,5 +317,15 @@ echo '{"telemetry":{"enabled":false},"localTesting":{"enabled":false,"mode":"tes
 assert_eq "no enable offer even when disabled, if mode explicitly set (never overwrite a deliberate choice)" "no" "$(has_offer)"
 rm "$LTP/compose.yaml"; echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
 assert_eq "no enable offer without a compose file" "no" "$(has_offer)"
+
+# Only verified native events are registered; telemetry lifecycle is disabled.
+assert_eq "native hook event registration" "PreToolUse,SessionStart" "$(jq -r '.hooks | keys | join(",")' "$REPO_ROOT/hooks/hooks.json")"
+assert_eq "agent lifecycle hook not registered" "false" "$(jq '.hooks | has("SubagentStart") or has("SubagentStop") or has("Stop")' "$REPO_ROOT/hooks/hooks.json")"
+# A state directory with shell metacharacters round-trips through the constant shim.
+ODD_STATE="$T/state with 'quote and \$literal"; ODD_HOST="$T/host with 'quote and \$literal"
+echo '{"session_id":"s-odd-state","source":"startup"}' | N1_STATE_DIR="$ODD_STATE" N1_HOST_FILE="$ODD_HOST/host.json" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null
+RESOLVED=$(env -u N1_SESSION_ID CODEX_THREAD_ID=s-odd-state N1_TEST_SHIM="$ODD_HOST/preamble.sh" bash -c 'source "$N1_TEST_SHIM" && printf "%s" "$N1_ROOT"')
+assert_eq "special-character state directory resolves" "$REPO_ROOT" "$RESOLVED"
+assert_eq "special-character state facts" "s-odd-state" "$(jq -r .session_id "$ODD_STATE/sessions/s-odd-state.json")"
 
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

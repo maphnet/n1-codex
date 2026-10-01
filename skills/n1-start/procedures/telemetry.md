@@ -4,7 +4,7 @@ Read `n1_config_val '.telemetry.enabled'` (default `false`).
 
 **If `true`:**
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_run_begin "$ID"
 n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
 ```

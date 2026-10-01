@@ -1,245 +1,36 @@
-<!-- Purpose: Detect existing configuration, handle migration, and determine setup mode (fresh/upgrade/skip). -->
+<!-- Purpose: Reuse shared N1 project state and install project-scoped Codex personas. -->
 
 ## Prerequisites
 
-Check if CLAUDE.md exists in the project root:
-- **If missing:** Create a minimal `CLAUDE.md` with `# <project-name>` (derived from the directory name or `package.json`/`Cargo.toml`/etc. if available). Log: "Created a minimal CLAUDE.md — I'll enrich it after analyzing the repo." Continue.
-- **If exists:** Continue.
+Create a minimal `AGENTS.md` containing `# <project-name>` in the project root if it is missing. Existing project instructions remain authoritative.
 
-### Detect Existing Configuration
-
-Check for N1 configuration in priority order:
-
-1. **New-format config:** Resolve N1_HOME by running `source ~/.n1/preamble.sh` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
-   - **If exists:** First prune dead keys that no code reads (idempotent, all hosts; prints only when something was removed):
-     ```bash
-     source ~/.n1/preamble.sh
-     CFG="$N1_HOME/config.json"
-     DEAD='del(.escalation.checkpoints, .escalation.channel, .memory.ticketContext, .memory.decisions, .story.designStorage, .story.designPath, .story.taskSizing, .loop.complexityTiers, .tracker.projectName, .tracker.site, .tracker.currentUser) | reduce ("escalation","memory","story","loop") as $k (.; if .[$k] == {} then del(.[$k]) else . end)'
-     if jq -e "($DEAD) != ." "$CFG" >/dev/null 2>&1; then
-       jq "$DEAD" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG" && echo "pruned dead config keys (escalation.checkpoints/channel, memory.*, story.*, loop.complexityTiers, tracker.projectName/site/currentUser)"
-     fi
-     ```
-     Then load the config and check for missing top-level keys against the **Expected Config Keys** list in the dispatcher SKILL.md. Then branch:
-     - **If no missing keys:** Check whether the user's invocation includes the word "reconfigure" (e.g., `/n1-init reconfigure`).
-       - **If "reconfigure" is present:** Continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
-       - **Otherwise:** Run the **Operation Gap Check** below before printing status. Then print the status summary and **STOP** — do not ask any questions:
-
-         ```
-         N1 is configured for this project.
-
-           State: <$N1_HOME path>
-           Tracker: <tracker.type> (<tracker.projectKey>) | None
-           PR mode: <git.prMode>
-           Autonomy: <autonomy.mode>
-           Worktree cleanup: <worktree.cleanup>
-           Telemetry: <telemetry.enabled>
-           Local testing: <localTesting.enabled> (<localTesting.mode>)
-
-         To reconfigure, run: /n1-init reconfigure
-         ```
-         **STOP.**
-     - **If missing keys found:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Then show:
-
-       ```
-       N1 config is missing sections added in newer versions:
-         → <comma-separated missing key names>
-
-       1 — Add missing sections (walks through only the new ones)
-       2 — Full reconfigure (re-ask everything)
-       3 — Skip
-       ```
-
-       - **If 1 (Add missing sections):** Run the **Targeted Upgrade** flow below.
-       - **If 2 (Full reconfigure):** Continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows (which now handle absent blocks via the implicit-else fix).
-       - **If 3 (Skip):** **STOP.**
-
-2. **Old-format config (migration candidate):** Check if `.n1/n1.config.json` exists on disk.
-   - **If exists:** Proceed to **Migration Flow** below.
-
-3. **No config found:** Continue with **Fresh Setup**.
-
-### Expected Config Keys
-
-The canonical set of top-level config keys. Used by the completeness check to detect missing sections. When adding a new config section to n1-init, add its key here.
-
-```
-worktree, tracker, git, ticketTagging, observability, estimation,
-localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
-```
-
-### Targeted Upgrade
-
-For each missing key, run that key's **fresh-setup** flow (the primary section, not the "On reconfiguration" variant). Process missing keys in the same order as the full n1-init flow:
-
-1. `tracker` → **Tracker Setup**
-2. `git` → **Git Configuration**
-3. `ticketTagging` → **Ticket Tagging Configuration** (fresh-setup portion)
-4. `observability` → **Observability Configuration** (fresh-setup portion)
-5. `estimation` → **Estimation Configuration** (fresh-setup portion)
-6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
-7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
-8. `release` → **Release Configuration** (fresh-setup portion)
-9. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
-10. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
-11. `rules` → **Rules Configuration** (fresh-setup portion)
-12. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-13. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
-14. `models` → write defaults silently (see **Write Configuration and Structure** for default values)
-
-Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
-
-**Special case:** If `rules` is among the missing keys, run **Analyze Repository** first (rules starter generation needs detection results). Otherwise skip Analyze Repository and CLAUDE.md enrichment.
-
-After all missing sections are processed, merge results into the existing `config.json` at the top level and show the summary (same format as **Confirm**, but listing only the added sections).
-
-### Operation Gap Check
-
-Runs when the config has all expected top-level keys but may be missing operations added in newer versions. Only applies when `tracker.type` is `"jira"` or `"youtrack"` (skip for `"none"` or absent tracker).
-
-Detect the following gaps using `jq`:
+Resolve the shared state and install the native Codex persona profiles:
 
 ```bash
-CFG="$N1_HOME/config.json"
-TRACKER_TYPE=$(jq -r '.tracker.type // empty' "$CFG")
-HAS_GET_ISSUE_LINKS=$(jq -r '.tracker.operations.getIssueLinks // empty' "$CFG")
-HAS_VERSION_MCP=$(jq -r '.tracker.versionMcp // empty' "$CFG")
+source ~/.n1-codex/preamble.sh
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+python3 "$N1_ROOT/scripts/install-agents.py" "$PROJECT_ROOT"
 ```
 
-**Gap: `tracker.operations.getIssueLinks` missing**
+Report the generated `.codex/agents/n1-*.toml` profiles and tell the user to restart Codex to load them. Do this even when shared N1 configuration already exists. Do not edit global Codex configuration or any Claude settings.
 
-Applies when `HAS_GET_ISSUE_LINKS` is empty and `TRACKER_TYPE` is `"jira"` or `"youtrack"`.
+## Existing Configuration
 
-- **If Jira and `tracker.versionMcp` is also missing:** Inform the user:
-  ```
-  Config is missing tracker.operations.getIssueLinks (added in N1 3.x).
-  This operation also requires tracker.versionMcp (the jc-mcp server name).
-  Without it, linked-issue data will be silently omitted from story analysis.
+Use the same `N1_HOME` as the original N1 plugin: explicit `N1_HOME` when provided, otherwise the existing `~/.n1/<project>/` resolution. `~/.n1-codex/preamble.sh` is a host bootstrap shim, not a state directory. Never copy, move, migrate, prune, or rewrite existing project state merely to enable Codex.
 
-  1 — Add getIssueLinks (I will provide my versionMcp server name)
-  2 — Skip
-  ```
-  - **If 1:** Ask: **"What is your jc-mcp MCP server name? (e.g. publius-jc-mcp)"**. Set `tracker.versionMcp` and `tracker.operations.getIssueLinks`:
-    ```bash
-    jq --arg vmcp "$VERSION_MCP" \
-       '.tracker.versionMcp = $vmcp | .tracker.operations.getIssueLinks = "jcm_getIssueLinks"' \
-       "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
-    ```
-    Log: "Added tracker.versionMcp and tracker.operations.getIssueLinks."
-  - **If 2:** Continue.
+If `$N1_HOME/config.json` exists, read the necessary keys with `n1_*_val` helpers. Preserve all existing configuration, memory, telemetry, and host-specific overrides.
 
-- **If Jira and `tracker.versionMcp` is already present:** Inform the user:
-  ```
-  Config is missing tracker.operations.getIssueLinks (added in N1 3.x).
-  Without it, linked-issue data will be silently omitted from story analysis.
+- First, when invoked with `--related`, run only the Related Projects Configuration step against the existing config, preserving all other settings; skip the completeness checks below.
+- If the invocation includes `reconfigure`, continue through the setup sections using their reconfiguration flows. Change only explicitly selected settings; merge them into the existing config.
+- Otherwise, check missing top-level sections against the Expected Config Keys in the dispatcher. If none are missing, report the configured state path, tracker, PR mode, autonomy, cleanup, telemetry, local testing, and restart instruction, then **STOP** without questions or config writes.
+- If sections are missing, offer `1 — Add missing sections / 2 — Full reconfigure / 3 — Skip`. Add only missing sections for option 1, in dispatcher order. Preserve every existing key and value. If `rules` is missing, analyze the repository first. Option 2 follows explicit reconfiguration; option 3 stops after installing profiles.
 
-  1 — Add getIssueLinks
-  2 — Skip
-  ```
-  - **If 1:** Patch:
-    ```bash
-    jq '.tracker.operations.getIssueLinks = "jcm_getIssueLinks"' \
-       "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
-    ```
-    Log: "Added tracker.operations.getIssueLinks."
-  - **If 2:** Continue.
+If no external config exists but legacy `.n1/n1.config.json` exists, report that legacy project-local state needs to be configured with the original N1 plugin, then **STOP**. Codex does not migrate it.
 
-- **If YouTrack:** Inform the user:
-  ```
-  Config is missing tracker.operations.getIssueLinks (added in N1 3.x).
-  Without it, linked-issue data will be silently omitted from story analysis.
+If no configuration exists, continue with fresh setup, using the shared `N1_HOME` path. No existing state is copied to a new location.
 
-  1 — Add getIssueLinks
-  2 — Skip
-  ```
-  - **If 1:** Patch:
-    ```bash
-    jq '.tracker.operations.getIssueLinks = "get_issue_links"' \
-       "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
-    ```
-    Log: "Added tracker.operations.getIssueLinks."
-  - **If 2:** Continue.
+## Targeted Upgrade
 
-If no gaps are found, proceed silently.
+Process missing keys in dispatcher order: tracker, git, ticketTagging, observability, estimation, localTesting, finishWork, release, telemetry, analysisCache, rules, worktree, autonomy, models. Use each section's fresh-setup flow. Missing `models` is `{}`; Codex personas inherit the session model by default.
 
-### Migration Flow (existing `.n1/n1.config.json`)
-
-When an old `.n1/n1.config.json` is detected:
-
-1. Compute project name (remote URL preferred, directory name fallback — must match `n1_home()` resolution):
-   ```bash
-   _raw=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
-   [ -z "$_raw" ] && _raw=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
-   PROJECT_NAME=$(printf '%s' "$_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
-   ```
-
-2. Prompt:
-   ```
-   Found existing N1 state at .n1/ in the project root.
-   N1 2.0 stores state externally at ~/.n1/<project-name>/.
-
-   Migrate to ~/.n1/<project-name>/?
-   1 — Yes, migrate
-   2 — No, keep current setup (state stays in project root)
-   ```
-
-3. **If 1 (Yes — migrate):**
-   a. Create the external state directory:
-      ```bash
-      mkdir -p "$HOME/.n1/$PROJECT_NAME/memory"
-      ```
-   b. Read `.n1/n1.config.json`, update it:
-      - Add `"version": "2.0.0"` field
-      - Remove `worktree.enabled` if present (always on in v2.0.0)
-   c. Write the updated config to `$HOME/.n1/$PROJECT_NAME/config.json`
-   d. Move existing memory if present:
-      ```bash
-      if [ -d ".n1/memory" ] && [ "$(ls -A .n1/memory 2>/dev/null)" ]; then
-          cp -r .n1/memory/* "$HOME/.n1/$PROJECT_NAME/memory/" 2>/dev/null || true
-      fi
-      ```
-   e. Remove legacy git config if present:
-      ```bash
-      git config --unset n1.home 2>/dev/null || true
-      ```
-   f. Auto-detect `worktree.setup` (see **Worktree Setup Detection** in step 02) and add to config
-   g. Add `${WT_ROOT}/` to gitignore (see **`.gitignore` configuration** in step 13)
-   h. Clean up the old location (the copy in step d preserved the originals):
-      ```bash
-      rm -rf .n1/memory .n1/n1.config.json 2>/dev/null || true
-      ```
-      Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
-   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs). Legacy host-keyed objects (`{"claude-code":"opus"}`) are first collapsed to their `claude-code` string (read the same way `_n1_model_override` in `lib/config.sh` reads them); any entry still not a plain string after that is dropped.
-      ```bash
-      source ~/.n1/preamble.sh
-      CFG="$HOME/.n1/$PROJECT_NAME/config.json"
-      jq '.models |= with_entries(.value |= (if type=="object" then (.["claude-code"] // empty) else . end)) | .models |= with_entries(select(.value|type=="string"))' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
-      for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
-        def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
-        cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
-        if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
-          jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
-          echo "pruned models.$a=$cur (equals frontmatter default)"
-        fi
-      done
-      ```
-   j. Prune dead config keys carried over from the old format (host-neutral, unlike step i's model-default comparison — runs unconditionally):
-      ```bash
-      source ~/.n1/preamble.sh
-      CFG="$HOME/.n1/$PROJECT_NAME/config.json"
-      DEAD='del(.escalation.checkpoints, .escalation.channel, .memory.ticketContext, .memory.decisions, .story.designStorage, .story.designPath, .story.taskSizing, .loop.complexityTiers, .tracker.projectName, .tracker.site, .tracker.currentUser) | reduce ("escalation","memory","story","loop") as $k (.; if .[$k] == {} then del(.[$k]) else . end)'
-      if jq -e "($DEAD) != ." "$CFG" >/dev/null 2>&1; then
-        jq "$DEAD" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG" && echo "pruned dead config keys (escalation.checkpoints/channel, memory.*, story.*, loop.complexityTiers, tracker.projectName/site/currentUser)"
-      fi
-      ```
-   k. Report: "Migrated N1 state to `~/.n1/$PROJECT_NAME/`. Config, memory, and telemetry moved."
-   l. Continue to **Analyze Repository** (skip the fresh setup sections that the migration already handled)
-
-4. **If 2 (No — decline migration):**
-   a. Rename config file in place:
-      ```bash
-      mv .n1/n1.config.json .n1/config.json
-      ```
-   b. Update the config content: add `"version": "2.0.0"` field
-   c. Warn: "State will remain in the project root. Worktree isolation requires externalized state (absolute N1_HOME) — run n1-init again to migrate later."
-   d. Continue to **Analyze Repository** (for CLAUDE.md enrichment and any new config fields)
+Merge only the added sections into the existing config, then show the summary and restart instruction.

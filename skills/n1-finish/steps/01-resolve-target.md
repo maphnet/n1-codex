@@ -6,7 +6,7 @@
 - Resolve `<ID>`: explicit argument, else parse from the current branch name using `git.branchPattern` (same extraction as n1-pr Step 1). A `#123`/`123` argument selects a PR number directly instead.
 - **Pending deploy resume:** check whether a deploy is pending for `<ID>`, and validate the recorded SHA before trusting it (it is untrusted frontmatter, not a fresh git query):
   ```bash
-  source ~/.n1/preamble.sh
+  source ~/.n1-codex/preamble.sh
   OV="$N1_HOME/memory/<ID>/overview.md"
   PENDING="$(n1_read_frontmatter "$OV" deploy_pending)"
   SHA="$(n1_read_frontmatter "$OV" deploy_merge_sha)"
@@ -24,4 +24,4 @@
 - **No argument / ticket ID** → `gh pr view --json ...` (current branch), or `gh pr list --head <branch> --state all --json ...` when not on the branch.
 - **No PR found:**
   - `prMode` is `"skip"` → go to Step 2b (local merge) in `02-merge.md`.
-  - Otherwise → "No PR found for this branch — run /n1:n1-pr first." **STOP.**
+  - Otherwise → "No PR found for this branch — run n1-codex:n1-pr first." **STOP.**

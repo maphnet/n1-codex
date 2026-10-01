@@ -1,253 +1,109 @@
-# N1 (No-One)
+# N1 Codex
 
-AI-driven development orchestrator for Claude Code. No one writes the code.
+Codex-native fork of [N1 for Claude Code](https://github.com/maphnet/n1-plugin).
+The workflow and per-ticket memory are retained; execution uses Codex skills,
+native agents, and hooks. This fork does not update or install the Claude plugin.
 
-N1 is a Claude Code plugin that orchestrates the full development cycle using 11 specialized agent personas and native skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); native skills handle interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
+**Milestone 1 is a draft:** automated helper and packaging checks are available;
+live pipeline validation is still required before production use. Unattended queue
+execution, generated deny hooks, and detailed Codex token accounting are deferred.
 
-## Requirements
+## Requirements and installation
 
-- [Claude Code](https://claude.ai/code) 2.1+
-- `git`, `gh` (GitHub CLI), `jq`, and `python3` on PATH
-- Optional: Jira (Atlassian MCP) or YouTrack MCP for tracker integration
-- Optional: Sentry MCP for error-tracking integration
+Codex CLI 0.155.1 or later, Bash, Git, `gh`, `jq`, and Python 3.11+.
+Tracker MCP connections are optional and use the existing N1 project configuration.
 
-## Installation
-
-### Claude Code
-
-```
-/plugin marketplace add maphnet/n1-plugin
-/plugin install n1@n1
-```
-
-Then enable auto-update: `/plugin` → Marketplaces → n1 → Auto-update.
-
-For local development:
+After the Codex branch is published:
 
 ```bash
-claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /reload-plugins to pick up edits
+codex plugin marketplace add maphnet/n1-codex --ref feat/codex-native
+codex plugin add n1-codex@n1-codex
 ```
 
-## Quick Start
+Start a new session. Review and trust the plugin's hooks with `/hooks`; installation
+alone does not trust hooks. Invoke the `n1-init` skill from **n1-codex**, especially
+if the older `n1` plugin is also installed. Initialization installs project-local
+`.codex/agents/n1-*.toml` profiles; restart Codex to load them.
 
-```
-# 1. Set up N1 for your project
-/n1:n1-init
+For local development, register the checkout as a local marketplace instead:
 
-# 2. Start working on a task
-/n1:n1-start TRID-510              # from a tracker ticket
-/n1:n1-start add CSV export users  # from a brain dump
-/n1:n1-start https://myorg.sentry.io/issues/12345  # from a Sentry error
-
-# 3. Or use skills standalone
-/n1:n1-estimate TRID-510           # estimate a ticket
-/n1:n1-review                      # review current branch (fix loop)
-/n1:n1-review #340                 # advisory review of a PR
-/n1:n1-pr                          # finalize branch: docs, push, create PR
-/n1:n1-finish                      # verify/merge PR, watch deploy, close ticket
-/n1:n1-queue --story STORY-12       # run story subtasks through the pipeline one by one (children merge only with queue.mergeOnFinish; the orchestrating session may still merge a blocker PR to release held rows). Also: --tag <tag>, --plan, --run <queue-id>, --dry-run, --status, --watch, --answer <ticket> <text>.
+```bash
+codex plugin marketplace add /absolute/path/to/n1-codex
+codex plugin add n1-codex@n1-codex
 ```
 
-## Skills
+Installed plugins are cached copies. Refresh/reinstall after changes, then start a
+new session. This repository's plugin identifier is `n1-codex`, distinct from `n1`.
 
-| Skill | Description |
-|-------|-------------|
-| /n1:n1-benchmark | Benchmark orchestrator autonomy across versions (interventions per run, quality metrics, baseline deltas) |
-| /n1:n1-clean | Remove git worktree for a ticket after work is done or abandoned |
-| /n1:n1-estimate | Estimate task complexity and delivery time |
-| /n1:n1-finish | Verify/merge PR, watch deploy, close ticket |
-| /n1:n1-init | Set up N1 for your project (tracker, models, flags) |
-| /n1:n1-pr | Finalize branch: docs, push, create PR |
-| /n1:n1-review | Code review loop or advisory review of a PR |
-| /n1:n1-start | Full pipeline orchestrator — ticket to merged PR |
-| /n1:n1-queue | Run a batch of tracker tickets (by tag or story subtasks) through the pipeline one after another. Children merge only when `queue.mergeOnFinish` is set; the orchestrating session can still merge a blocker's PR (strict gate, no merge hook) to release rows held on it. `--tag`, `--story`, `--plan` (persist a reviewable plan), `--run <queue-id>` (execute a saved plan), `--dry-run`, `--status`, `--watch` (the watch also shows an escalated child's full pending question), `--answer <ticket> <text>` (relays your reply back to the waiting child). |
+For workspace-write sessions, authorize the shared project state directory as an
+additional writable root when launching Codex, using the actual project slug:
 
-### `/n1:n1-start` — Core Orchestrator
-
-Single entry point for all task work. Full pipeline:
-
-```
-Input (ticket or brain dump)
-  → Ticket read (product-analyst agent)
-  → Codebase analysis (solution-architect agent)
-  → Brainstorm (n1-brainstorm / brainstormer agent, with architect's analysis)
-  → Plan (planner agent → n1-plan) — if complex
-  → Implement (n1-implement + developer persona)
-  → QA (qa-engineer agent)
-  → Review (code-reviewer + security-reviewer agents, parallel)
-  → Fix loop (developer agent, if needed)
-  → PR (n1:n1-pr → tech-writer agent)
-  → Tracker update
-  → Finish (n1:n1-finish, if finishWork.enabled) — merge verify, deploy watch, ticket close
+```bash
+codex --sandbox workspace-write --add-dir "$HOME/.n1/<project>"
 ```
 
-- **Agent personas:** 12 specialized agents with scoped tools and configurable models
-- **Parallel security review:** code-reviewer and security-reviewer run simultaneously
-- **Adaptive routing:** tasks that don't need a formal plan skip straight to implementation
-- **Resume support:** interrupt anytime, `/n1:n1-start TRID-510` picks up where you left off
-- **Confidence-based escalation:** low confidence + high blast radius = stop and ask
+An explicit `N1_HOME` requires that directory instead. Any separately located
+worktree must also be writable. Writer personas inherit the session permissions;
+reviewer profiles remain read-only. Without access to shared memory, pause setup
+and explain the missing writable root instead of relocating memory or bypassing
+the sandbox. This permission path still needs live validation.
 
-### `/n1:n1-review` — Code Review
+## Shared project state
 
-Two modes:
+Both forks intentionally use the same `N1_HOME`, `~/.n1/<project>/config.json`, and
+`~/.n1/<project>/memory/`. Existing legacy resolution remains supported. There is
+no automatic copying or migration. Do not run both hosts against the same active
+ticket concurrently: ticket files remain shared.
 
-| Mode | Trigger | Behavior |
-|------|---------|----------|
-| Review Loop | No args, on feature branch | code-reviewer + security-reviewer (parallel) → developer fixes → repeat until clean |
-| Advisory | `/n1:n1-review #340` | code-reviewer report only, no fixes |
+Only Codex runtime bootstrap is separate: `~/.n1-codex/preamble.sh` and its session
+files. Claude's `~/.n1/preamble.sh`, installed cache, and `.claude/settings*.json`
+are not modified. Existing explicit worktree settings remain respected.
 
-### `/n1:n1-pr` — Pull Request Creation
+Codex inherits its configured model/effort by default. It ignores Claude model
+names without rewriting them. Optional explicit per-persona settings coexist:
 
-Spawns tech-writer agent for doc updates and PR content, pushes, creates PR via `gh`, and updates the tracker.
-
-### `/n1:n1-finish` — Finish Work
-
-Completes the cycle after PR/CI: verifies the PR is merged (or merges it when `finishWork.mergeOnFinish` is enabled), optionally watches the deployment workflow triggered by the merge commit, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
-
-- Standalone and idempotent — works with or without the `finishWork.enabled` pipeline gate
-- Configure via `/n1:n1-init` or the `finishWork` block in `~/.n1/<project>/config.json`
-
-```
-/n1:n1-finish            # verify/merge current branch's PR, close ticket
-/n1:n1-finish TRID-510   # target a specific ticket
-/n1:n1-finish #123       # target a specific PR number
-```
-
-### `/n1:n1-init` — Project Setup
-
-Interactive wizard:
-
-1. Analyzes your repo (stack, docker, test runner, linter)
-2. Enriches CLAUDE.md with detected conventions
-3. Configures tracker (Jira / YouTrack / None)
-4. Sets up git defaults and review policy
-5. Detects and configures error tracking (Sentry)
-6. Configures estimation (off by default — complexity tier → delivery time)
-7. Configures agent models (defaults or custom per-agent)
-8. Creates `~/.n1/<project>/` state directory (v1 projects: offers migration from `.n1/`)
-9. Adds `.claude/worktrees/` to `.gitignore`
-
-### `/n1:n1-estimate` — Task Estimation
-
-Estimates task complexity and delivery time. Runs the analysis pipeline (ticket read → codebase analysis → brainstorm), classifies complexity into a tier (XS–XL), and maps to a time estimate.
-
-- Writes estimate to tracker ticket (description + time field) when enabled
-- Reuses existing analysis if the ticket was previously analyzed
-- No branch creation or status transitions — read-only analysis
-- Configure via `/n1:n1-init` or set `estimation.enabled: true` in `~/.n1/<project>/config.json`
-
-### `/n1:n1-clean` — Worktree Cleanup
-
-Removes the git worktree for a ticket after work is done or abandoned. Use when a worktree was not automatically cleaned up by `n1-finish` (e.g., when the finish step was skipped or the session was interrupted).
-
-```
-/n1:n1-clean TRID-510   # remove worktree for TRID-510
-/n1:n1-clean            # remove worktree for the current branch's ticket
+```json
+{
+  "models": {
+    "developer": {
+      "claude-code": "sonnet",
+      "codex": {"model": "gpt-6.1-sol", "effort": "medium"}
+    }
+  }
+}
 ```
 
-## Tracker Support
+Use a model available to your account. Normal work does not automatically escalate
+to Astra. See [Codex routing](references/codex-routing.md) for delegation and
+read-only reviewer behavior.
 
-| Tracker | MCP Server | Status |
-|---------|------------|--------|
-| Jira | `plugin_atlassian_atlassian` | Supported |
-| YouTrack | `youtrack` | Supported |
-| None | — | Works without tracker |
+## Scope
 
-Tracker routing is config-driven via `~/.n1/<project>/config.json` (auto-derived from repo name at runtime) — all MCP tool names are mapped through operations presets populated by `n1-init`.
+- Interactive initialization, planning, implementation, QA, review, and resume
+  retain the N1 workflow and memory layout.
+- PR/CI/finish skills retain their explicit workflow gates. The duplicate
+  post-PR Codex review subprocess is disabled in this Codex fork.
+- Queue entry points stop before side effects; there is no Claude fallback.
+- Existing rule instructions remain readable. Claude-generated deny hooks are
+  not changed or represented as enforced by Codex.
+- Step outcomes and timing remain useful. Missing Codex token accounting is
+  reported as unknown; no token/cost parity is claimed.
 
-Created tickets can optionally be tagged with a service name. When `ticketTagging.enabled` is set (off by default; configured by `n1-init`), N1-created tickets get a `{service} | <title>` summary prefix and a `**Service:** <service>` line in the description.
+## Verification
 
-Tickets N1 creates are auto-assigned to you (the authenticated tracker user) by default; `n1-start` also assigns unassigned tickets to you on pickup (e.g. via `n1-queue`). Set `tracker.assignToCreator` to `false` (or answer No during `n1-init`) to disable. Never steals an existing assignee from a ticket.
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
+bash tests/test_host_lib.sh
+bash tests/test_model_resolver.sh
+bash tests/test_codex_isolation.sh
+bash tests/test_codex_workflows.sh
+bash tests/test_hooks.sh
+bash tests/test_preamble.sh
+bash tests/test_manifests.sh
+```
 
-## Error Tracking Support
+The remaining shared helper tests live in `tests/`. Historical design documents
+describe upstream behavior and are not the Codex runtime contract.
 
-| Provider | MCP Server | Status |
-|----------|------------|--------|
-| Sentry | `sentry` (official MCP) | Supported |
-
-Error tracking is optional and independent of tracker integration. When configured via `n1-init`, N1 accepts error-tracker issue URLs as input to `n1-start`. The product-analyst fetches structured error data (stack trace, breadcrumbs, event frequency, AI root-cause analysis) and the solution-architect searches for related issues during codebase analysis.
-
-Sentry issues can optionally be promoted to tracker tickets (Jira/YouTrack) during the pipeline, or worked standalone with `sentry-<issueId>` as the working identifier.
-
-## Estimation
-
-Optional complexity classification that maps tasks to delivery time estimates. Off by default — enable via `n1-init` or set `estimation.enabled: true` in `~/.n1/<project>/config.json`.
-
-| Tier | Default Time | Characteristics |
-|------|-------------|-----------------|
-| XS | 30m | Config change, typo, single-line fix |
-| S | 2h | Single file, clear scope, no migrations |
-| M | 6h | 2-5 files, may need tests, straightforward |
-| L | 2d | Multiple files, migrations, new tests |
-| XL | 5d | Cross-cutting, architectural, multi-subsystem |
-
-Times represent total delivery (including QA/review), not just coding. Default mapping is overridable per-project via `estimation.mapping` in config.
-
-When enabled, estimation runs automatically in the `n1-start` pipeline (after plan when `planning_need: plan`, after brainstorm when `planning_need: direct`) and writes to the tracker's time field (Jira `originalEstimate`, YouTrack `Estimation`). Use `/n1:n1-estimate` standalone to estimate without running the full pipeline.
-
-## How It Works
-
-N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 11 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native skills handle interactive steps (brainstorming, planning, implementation dispatch). Each agent gets fresh context with scoped tools, enforced at runtime by Claude Code's own agent allowlist.
-
-### Agent Personas
-
-| Agent | Default Model | Effort | Role |
-|-------|---------------|--------|------|
-| product-analyst | sonnet | low | Ticket distillation and requirements extraction |
-| solution-architect | opus | medium | Codebase analysis and architecture assessment |
-| planner | opus | medium | Isolated implementation-plan writing |
-| implementer | sonnet | medium | n1-implement execution wrapper |
-| developer | sonnet | medium | Implementation and review fix cycles |
-| code-reviewer | opus | medium | Adversarial code quality review |
-| security-reviewer | opus | medium | Security vulnerability review (OWASP, CWE) |
-| qa-engineer | sonnet | medium | Test design and implementation |
-| local-test-planner | sonnet | medium | Local test plan creation |
-| tech-writer | sonnet | medium | PR content generation |
-
-Defaults come from agent frontmatter; `models.*` in config is an explicit override that also disables signal-based tier adjustments for that agent.
-
-### Per-Ticket Memory
-
-Per-ticket memory lives in `~/.n1/<project>/memory/<ticket-id>/` (externalized, never inside the project tree) with semantic-named files and an explicit dependency map:
-
-| Step | Reads | Writes |
-|------|-------|--------|
-| ticket | — | `ticket.md` |
-| analysis | `ticket.md` | `analysis.md` |
-| brainstorm | `ticket.md`, `analysis.md` | `brainstorm.md` |
-| plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
-| estimation | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` (if exists) | `overview.md` |
-| implementation | `brainstorm.md`, `plan.md` | `implementation.md` |
-| qa | `ticket.md`, `implementation.md`, `plan.md` | `qa.md` |
-| review | `ticket.md`, `brainstorm.md`, `implementation.md`, `qa.md` | `review.md` |
-| pr | `overview.md`, `review.md`, `qa.md` | — |
-
-The `~/.n1/<project>/` directory lives outside your project tree — tool state never gets committed to your repo. N1 uses git worktrees (`<project>/.claude/worktrees/<ID>/`) for isolation; only `.claude/worktrees/` needs to be gitignored (handled by `n1-init`).
-
-Throwaway investigative tests and benchmarks (one-off probes that answer a question rather than verify shipped code) are written under `~/.n1/<project>/` too — they never land in your repo's test suite. Real unit/integration/e2e tests that cover the implemented feature are committed to the repo as usual.
-
-## Escalation Model
-
-**Fixed checkpoints (always):**
-- After PR creation — Tech Lead reviews
-- After PR creation — Codex Review runs automatically on every PR (opt-out: `crossHostReview.enabled: false` in config), posting findings as a PR comment
-
-**Confidence-based (during implementation):**
-- Low confidence + High blast radius → stop and ask
-- Low confidence + Low blast radius → proceed, note decision
-- High confidence → full autonomy
-
-**Always escalates for:** security changes, new architecture patterns, public API changes.
-
-## Troubleshooting
-
-**"API Error: Usage credits required for 1M context" when invoking an N1 skill.** N1 skills pin
-a session model via frontmatter (`model: sonnet` on most skills) to keep orchestration cheap. If
-your saved `sonnet` preference resolves to the Sonnet 4.6 **1M-context** variant, that variant
-requires usage credits on every plan (including Max) and the session blocks immediately. Fix:
-set `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` in your environment (removes 1M variants entirely), or
-run `/model` and select standard-context Sonnet so the alias stops resolving to the 1M variant.
-
-## License
-
-MIT
+Port upstream fixes selectively. Do not automatically merge this branch into the
+Claude repository or synchronize shared configuration schemas between forks.

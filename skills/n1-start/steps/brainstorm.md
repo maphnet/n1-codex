@@ -3,14 +3,16 @@
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 INVESTIGATE_INTERACTIVE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive")
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm'); [ "$INVESTIGATE_INTERACTIVE" = "true" ] && BRAINSTORM_MODE=interactive
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 TEST_TIER=$(n1_config_val '.testCoverage.tier' 2>/dev/null); TEST_TIER="${TEST_TIER:-maintain}"
 # Dispatch the coherent model/effort pair together.
-IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect brainstorm)
+AGENT_CONFIG=$(n1_resolve_agent solution-architect brainstorm)
+SA_MODEL=${AGENT_CONFIG%%$'\t'*}
+SA_EFFORT=${AGENT_CONFIG#*$'\t'}
 HAS_INVESTIGATION=false; [ -s "$N1_HOME/memory/$ID/investigation.md" ] && HAS_INVESTIGATION=true
 ```
 
@@ -28,7 +30,7 @@ Bug: use root cause findings. Investigation: explore question. Append `$RULES_BL
 After: parse `context:`; if updated replace `## Context` in overview.md. Update: `[x] Brainstorm`, `step: brainstorm`.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md || { echo "ERROR: brainstorm.md not written by SA — aborting" >&2; exit 1; }
 ```
 
@@ -37,7 +39,7 @@ n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md || { echo "ERROR: bra
 Skip when investigation mode. Read `DESC_QUALITY`. Present checkpoint: design saved, AC list, scope.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/memory.sh"
 ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate')
 if [ "$ACCEPTANCE_GATE" = "auto" ]; then n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "auto-decided" "---"

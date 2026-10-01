@@ -19,7 +19,7 @@ INPUT=$(cat)
 # always forward to Python (which does its own quote-stripping, SEC-21); non-queue sessions
 # keep the cheap filter unchanged.
 case "$INPUT" in
-    *'"n1:'*) : ;;
+    *'"n1-'*) : ;;
     *)
         if [ -z "${N1_QUEUE_RUN_ID:-}" ]; then
             case "$INPUT" in

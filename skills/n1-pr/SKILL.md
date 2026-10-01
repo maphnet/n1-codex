@@ -1,7 +1,6 @@
 ---
 name: n1-pr
 description: "Finalize the branch: update docs, push, create PR based on config, and update tracker."
-model: sonnet
 effort: low
 ---
 
@@ -16,7 +15,7 @@ Create a PR from the current feature branch. Spawns tech-writer for PR content, 
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If empty — N1 not configured; warn the user. Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/$ID/`.
@@ -24,7 +23,7 @@ If empty — N1 not configured; warn the user. Config: read keys via `n1_*_val` 
 ## Model Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 
@@ -41,5 +40,5 @@ Execute steps in order. Read each step file and follow its instructions before p
 2. **Push & Create** — push and create PR, update tracker, update memory, report, post-PR follow-ups
    Read `<N1_ROOT>/skills/n1-pr/steps/02-push-create.md`
 
-3. **Codex Review** -- Codex review of the PR (skips silently when unavailable)
+3. **Post-PR Review** — skipped in the native Codex workflow; existing native reviewer gates apply
    Read `<N1_ROOT>/skills/n1-pr/steps/03-codex-review.md`

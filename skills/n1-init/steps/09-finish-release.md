@@ -177,7 +177,7 @@ Ask whether N1 should create a release (git tag + GitHub Release) after the pipe
 
 ```
 Enable releases?
-/n1:n1-release can guide you through releasing a version after the pipeline completes.
+n1-codex:n1-release can guide you through releasing a version after the pipeline completes.
 1 — Yes
 2 — No (default)
 ```
@@ -262,7 +262,7 @@ When conditions are met, write the `trackerRelease` block to the `release` confi
 }
 ```
 
-No questions asked -- tracker release operations are on by default for Jira projects. Users can disable individual operations in config.json after init. Missing infrastructure (e.g., `versionMcp`) is configured inline by `/n1:n1-release` on first run.
+No questions asked -- tracker release operations are on by default for Jira projects. Users can disable individual operations in config.json after init. Missing infrastructure (e.g., `versionMcp`) is configured inline by `n1-codex:n1-release` on first run.
 
 ### Deployment Pipeline Awareness
 
@@ -288,7 +288,7 @@ Check for deployment pipeline after each release?
 2 — No (default for libraries/plugins)
 ```
 
-Default suggestion: `true` if any deployment workflows were detected (categories 3-5) or project has a Dockerfile / `docker-compose.yml`; `false` if project looks like a library/plugin (has `.claude-plugin/plugin.json` with no Dockerfile, or is an npm package with no deployment indicators).
+Default suggestion: `true` if any deployment workflows were detected (categories 3-5) or project has a Dockerfile / `docker-compose.yml`; `false` if project looks like a library/plugin (has `.codex-plugin/plugin.json` with no Dockerfile, or is an npm package with no deployment indicators).
 
 Set `release.deploymentCheck` to the chosen value.
 

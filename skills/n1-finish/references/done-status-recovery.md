@@ -5,7 +5,7 @@ When hard-skip gates pass but `tracker.statuses.done` is absent from config:
 1. **Detect available statuses:**
    - Jira: call `mcp__<tracker.mcp>__<operations.getTransitions>` on the current ticket; extract the target status name from each transition.
    - YouTrack: call `mcp__<tracker.mcp>__<operations.readTicket>` on the current ticket; inspect `customFields` for the State field — read its bundle values (or `value.name` when a single value is present). Fallback: call `mcp__<tracker.mcp>__<operations.search>` for one sample issue in the project and read its State field.
-   - **If detection fails** (MCP error or empty result): skip ticket closing. Message: "Ticket close skipped: `tracker.statuses.done` not configured and status detection failed. Re-run `/n1:n1-init` to configure it." Go to Step 5.
+   - **If detection fails** (MCP error or empty result): skip ticket closing. Message: "Ticket close skipped: `tracker.statuses.done` not configured and status detection failed. Re-run `n1-codex:n1-init` to configure it." Go to Step 5.
 
 2. **Sort and auto-match:** names matching any of ("Done", "Closed", "Resolved", "Fixed", "Complete", "Completed") — case-insensitive substring — sort first.
 

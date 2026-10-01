@@ -2,7 +2,6 @@
 name: n1-telemetry
 description: "Analyze optimization decision telemetry. Correlates signal-driven decisions (skip/downgrade/escalate) with quality outcomes (review pass rate, fix cycles) and produces threshold calibration recommendations."
 argument-hint: "[--project <path>]"
-model: sonnet
 effort: medium
 ---
 
@@ -15,7 +14,7 @@ Aggregate decision-to-outcome correlations across pipeline runs and produce thre
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If `N1_HOME` is empty, tell the user N1 is not configured and stop.

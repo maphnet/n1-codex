@@ -12,11 +12,11 @@ Search via `mcp__<TRACKER_MCP>__<SEARCH_OP>`:
 
 **Already-run check.** Before reading each result, check whether a previous queue run already handled it and its tag release was not confirmed (a stale tag). A ticket whose tag was released and later re-added by a human passes this check (explicit re-queue):
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 if RUN=$(n1_queue_already_run "$N1_HOME/memory/<KEY>/overview.md"); then echo "EXCLUDE run:$RUN"; else echo KEEP; fi
 ```
-`EXCLUDE` -> excluded with reason `already run: <run> (tag not released; /n1:n1-queue --status releases it)`; skip its `READ_OP` call.
+`EXCLUDE` -> excluded with reason `already run: <run> (tag not released; n1-codex:n1-queue --status releases it)`; skip its `READ_OP` call.
 
 For each remaining result, call `mcp__<TRACKER_MCP>__<READ_OP>` to get `key`, `title`, `description`, `status`, `size` (estimation field if available).
 
@@ -34,7 +34,7 @@ Status classification: a status whose lowercase name is one of `done`, `closed`,
 
 For each candidate in story mode:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 SERVICE=$(n1_story_parse_service "$TITLE")
 if [ -n "$SERVICE" ]; then
@@ -68,7 +68,7 @@ For each remaining candidate, grade the description with the product-analyst tie
 Exclude only a candidate with nothing to work from: an Empty description and a vague title. For each Empty candidate, write its title to `<QUEUE_DIR>/desc/<KEY>.title` with the file-write mechanism (never through a shell string, NP-203 SEC-1), then:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_title_vague "<QUEUE_DIR>/desc/<KEY>.title" && echo VAGUE || echo OK
 ```
 
@@ -81,7 +81,7 @@ For each remaining candidate, follow `<N1_ROOT>/references/duplicate-check.md` Â
 ## Model per ticket
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 MODEL=$(n1_story_pick_model "$SIZE")
 ```

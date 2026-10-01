@@ -1,4 +1,4 @@
-<!-- Purpose: Detect stack, set up worktree config, enrich CLAUDE.md, and run host-specific checks. -->
+<!-- Purpose: Detect stack, set up worktree config, enrich AGENTS.md, and run host-specific checks. -->
 
 ## Analyze Repository
 
@@ -11,7 +11,7 @@ Explore the project to detect:
 5. **Linter/formatter:** Look for `.eslintrc*`, `.prettierrc*`, `phpcs.xml`, `rustfmt.toml`, `.flake8`, etc.
 6. **CI/CD:** Check `.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`, etc.
 
-Read existing CLAUDE.md content to identify what's already documented.
+Read existing AGENTS.md content to identify what's already documented.
 
 ## Consolidated Detection
 
@@ -75,7 +75,7 @@ Detected environment:
 Setup will proceed based on these detections.
 ```
 
-Then continue to **Worktree Setup Detection** and **Enrich CLAUDE.md**.
+Then continue to **Worktree Setup Detection** and **Enrich AGENTS.md**.
 
 ## Worktree Setup Detection
 
@@ -101,15 +101,15 @@ which already prints `Worktree setup: <command or "none">`. Non-standard project
 (monorepo bootstrap, `make setup`, private-registry auth, env files, DB migrations)
 override `worktree.setup` in `config.json` after init.
 
-## Enrich CLAUDE.md (if gaps found)
+## Enrich AGENTS.md (if gaps found)
 
-Compare what was detected vs. what's documented in CLAUDE.md.
+Compare what was detected vs. what's documented in AGENTS.md.
 
-If gaps exist, propose additions as a structured block. **Only add tool-agnostic information** — no N1-specific config in CLAUDE.md.
+If gaps exist, propose additions as a structured block. **Only add tool-agnostic information** — no N1-specific config in AGENTS.md.
 
 Present proposed additions to the user:
 ```
-I found the following gaps in your CLAUDE.md:
+I found the following gaps in your AGENTS.md:
 
 ## Proposed additions:
 
@@ -123,14 +123,14 @@ npm run dev
 - app/Services/ — Business logic
 ...
 
-Add these to CLAUDE.md?
+Add these to AGENTS.md?
 1 — Yes
 2 — No
 3 — Edit first
 ```
 
-If approved (1), append to CLAUDE.md. If edit (3) — ask what to change first.
+If approved (1), append to AGENTS.md. If edit (3) — ask what to change first.
 
 ## Host Setup
 
-Host is fixed to Claude Code; nothing to detect or set up here.
+Host is Codex. Project-scoped persona profiles are installed in Prerequisites; regenerate them after explicit model customization. Restart Codex to load new or changed profiles. Never change global Codex configuration or Claude settings.

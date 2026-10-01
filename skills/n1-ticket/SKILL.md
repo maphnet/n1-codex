@@ -1,8 +1,7 @@
 ---
 name: n1-ticket
-description: "Create a single backlog ticket from conversation context and/or brain dump: /n1:n1-ticket [description]"
+description: "Create a single backlog ticket from conversation context and/or brain dump: n1-codex:n1-ticket [description]"
 argument-hint: "[description or brain dump text]"
-model: sonnet
 effort: medium
 ---
 
@@ -17,10 +16,10 @@ Create a single tracker ticket (Task or Bug) from the current conversation conte
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
-If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured for this project. Run `/n1:n1-init` to set it up." **STOP.**
+If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured for this project. Run `n1-codex:n1-init` to set it up." **STOP.**
 
 ## Steps
 

@@ -3,7 +3,7 @@
 ## Prerequisites
 
 **Gate check:** Read `$N1_HOME/config.json` → check `estimation.enabled`.
-- If `estimation.enabled` is not `true`: Tell the user: "Estimation is not enabled. Run `/n1:n1-init` to configure it, or set `estimation.enabled: true` in `$N1_HOME/config.json`." **STOP.**
+- If `estimation.enabled` is not `true`: Tell the user: "Estimation is not enabled. Run `n1-codex:n1-init` to configure it, or set `estimation.enabled: true` in `$N1_HOME/config.json`." **STOP.**
 
 ## Input Parsing
 
@@ -15,7 +15,7 @@ Same as n1-start — the user provides one of:
 ### Detect input type:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/validation.sh"
 TYPE=$(n1_detect_input_type "<user-input>" "$N1_HOME/config.json")
 ```
@@ -27,7 +27,7 @@ Returns `ticket`, `file`, or `braindump`. If the helper returns `error-tracker`,
 When spawning any agent, resolve its model and reasoning effort together via Bash:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 
@@ -42,7 +42,7 @@ Write to `$N1_HOME/memory/$ID/` as usual:
 
 If `$N1_HOME/memory/$ID/` already has `ticket.md`, `analysis.md`, and `brainstorm.md` from a prior run, first (ticket mode with `readTicket` configured) fetch the ticket (error → skip) and write its title to `$N1_HOME/memory/.fresh-title-$ID.txt` (a sibling of `$N1_HOME/memory/$ID/`) via the file-write mechanism, never a shell string (untrusted text, NP-203 SEC-1). Then run:
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/memory.sh"
 ARCHIVED=$(n1_memory_reuse_check "$N1_HOME/memory/$ID" "$(cat "$N1_HOME/memory/.fresh-title-$ID.txt")")
 rm -f "$N1_HOME/memory/.fresh-title-$ID.txt"
@@ -76,7 +76,7 @@ Same as n1-start Step 1, with these differences:
 After agent returns:
 - The agent wrote `$N1_HOME/memory/$ID/ticket.md` itself. Verify it:
   ```bash
-  source ~/.n1/preamble.sh
+  source ~/.n1-codex/preamble.sh
   source "$N1_ROOT/lib/validation.sh"
   n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md
   ```

@@ -108,4 +108,4 @@ Skip if ANY of: `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` is empty, `ASSIGN_
 
 Report: "Created **[<TICKET_ID>](<ticket URL>)**: <title>"
 
-Then mention: "Run `/n1:n1-start <TICKET_ID>` when you're ready to start working on it."
+Then mention: "Run `n1-codex:n1-start <TICKET_ID>` when you're ready to start working on it."

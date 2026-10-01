@@ -1,8 +1,7 @@
 ---
 name: n1-finish
-description: "Finish work: verify or perform the PR merge, watch the automated deployment, close the tracker ticket, and clean up. Usage: /n1:n1-finish, /n1:n1-finish TRID-510, or /n1:n1-finish #123"
+description: "Finish work: verify or perform the PR merge, watch the automated deployment, close the tracker ticket, and clean up. Usage: n1-codex:n1-finish, n1-codex:n1-finish TRID-510, or n1-codex:n1-finish #123"
 argument-hint: "[ticket-id or PR#]"
-model: sonnet
 effort: low
 ---
 
@@ -21,7 +20,7 @@ The ticket is closed **only when the code is actually merged** — never on gree
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user and STOP.

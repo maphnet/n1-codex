@@ -8,7 +8,7 @@ Classify failure:
   1. Note in `overview.md ## Escalations`.
   2. **Telemetry:** emit final step event with `outcome: "failed"` and run merge script.
   3. Report to user: 20 words per line — what failed and where. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
-  4. On next `/n1:n1-start <ID>`: resume from last successful step.
+  4. On next `n1-codex:n1-start <ID>`: resume from last successful step.
 
 ## Context Management
 

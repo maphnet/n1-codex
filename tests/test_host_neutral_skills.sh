@@ -18,7 +18,7 @@ check "inline N1_ROOT resolution (use: source ~/.n1/preamble.sh)" 'N1_ROOT="\$\{
 # (each snippet is its own fresh shell).
 python3 - <<'PY' || FAIL=1
 import re, sys, pathlib
-PRE = 'source ~/.n1/preamble.sh'
+PRE = 'source ~/.n1-codex/preamble.sh'
 bad = []
 for path in list(pathlib.Path("skills").rglob("*.md")) + list(pathlib.Path("agents").glob("*.md")):
     text = path.read_text(encoding="utf-8")

@@ -10,7 +10,7 @@
 3. **Deploy not watched** (`none triggered` or `skipped (not configured)`): `mode:runbook` → leave the rows unticked for n1-release or a later run, and continue below. `mode:walk` → § Unwatched Deploy.
 4. After any walk, complete or aborted, clear the pending flag and continue below. After-deploy actions never block the ticket close; unticked rows stay in the PR body.
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
    ```
 

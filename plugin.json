@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "n1-codex",
+  "version": "0.1.0",
+  "description": "Codex-native N1 development workflows with shared N1 project config and memory.",
+  "author": {"name": "N1 Team"},
+  "repository": "https://github.com/maphnet/n1-codex",
+  "license": "MIT",
+  "extensions": {"com.openai": {"hooks": "./hooks/hooks.json"}}
+}

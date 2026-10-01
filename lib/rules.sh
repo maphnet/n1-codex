@@ -136,6 +136,8 @@ n1_rules_deny_field() {
 }
 
 n1_generate_deny_hook() {
+    echo 'N1 Codex: deny-hook generation is unsupported; existing Claude hooks are unchanged.' >&2
+    return 2
     local rules_dir="$1" output_path="$2"
     local deny_rules=()
     local rule_file enf
@@ -265,6 +267,8 @@ CMD_OPEN_FIRST
 }
 
 n1_deny_hook_register() {
+    echo 'N1 Codex: deny-hook registration is unsupported; Claude settings are unchanged.' >&2
+    return 2
     local settings_file=".claude/settings.local.json"
     # Self-resolving hook command: derives N1_HOME at hook execution time.
     # Priority: $N1_HOME env var > auto-derive from repo name > git config n1.home.
@@ -338,6 +342,8 @@ EOF
 }
 
 n1_deny_hook_deregister() {
+    echo 'N1 Codex: deny-hook deregistration is unsupported; Claude settings are unchanged.' >&2
+    return 2
     local settings_file=".claude/settings.local.json"
 
     [ -f "$settings_file" ] || return 0

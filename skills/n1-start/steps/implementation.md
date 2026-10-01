@@ -4,14 +4,18 @@
 Run **Ensure Dependencies(`<ID>`)** before spawning. Spawn directives: `WORKTREE_PATH` set → "Work in `$WORKTREE_PATH`." Scratch: `$N1_HOME/memory/<ID>/benchmarks/`. No finish/branch-delete skills, no push, no PRs. Output: `$N1_HOME/memory/<ID>/implementation.md` (format below). Append `$RULES_BLOCK`. Escalation: see below.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 n1_step_begin "implementation" 7
 n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md || { echo "ERROR: analysis.md missing — cannot implement" >&2; exit 1; }
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
 BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "blast_radius" 2>/dev/null); BLAST="${BLAST:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")}"
 FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_changed" 2>/dev/null); FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
-IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer implementation)
-IFS=$'\t' read -r IMPLEMENTER_MODEL IMPLEMENTER_EFFORT < <(n1_resolve_agent implementer implementation)
+AGENT_CONFIG=$(n1_resolve_agent developer implementation)
+DEVELOPER_MODEL=${AGENT_CONFIG%%$'\t'*}
+DEVELOPER_EFFORT=${AGENT_CONFIG#*$'\t'}
+AGENT_CONFIG=$(n1_resolve_agent implementer implementation)
+IMPLEMENTER_MODEL=${AGENT_CONFIG%%$'\t'*}
+IMPLEMENTER_EFFORT=${AGENT_CONFIG#*$'\t'}
 PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
 # Fallback simplicity gate: fires if simple-path gate (analysis.md) did not already route directly.
 # Primary routing is done earlier by the simple-path gate in analysis.md.
@@ -30,7 +34,7 @@ Run `procedures/rules-injection.md`: `agent_name=developer` for direct routes an
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until the persona returns its result.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
 BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "HEAD")
 LINES_CHANGED=$(git diff --stat "$BASE" 2>/dev/null | tail -1 | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")

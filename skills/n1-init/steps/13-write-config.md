@@ -2,11 +2,21 @@
 
 ## Write Configuration and Structure
 
-Create all files:
+For fresh setup, create the shared state files below. When reconfiguring or adding missing sections, merge only the selected changes into the existing config; preserve every other key, including Claude model overrides and unknown host-specific settings. Never overwrite an existing config with this example.
+
+For an existing config, write only the explicitly selected settings to a temporary JSON object at `CHANGES`. Then merge recursively; existing object keys survive, and explicitly selected scalar/array values replace their previous values:
+
+```bash
+source ~/.n1-codex/preamble.sh
+CFG="$N1_HOME/config.json"
+jq -s '.[0] * .[1]' "$CFG" "$CHANGES" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+```
+
+Do not populate `CHANGES` with the fresh-setup example or defaults. If no settings changed, skip this write entirely. Model customization uses step 12's host-preserving update, never a replacement `models` object.
 
 **Code-default keys (NOT written to config):** `testCoverage`, `review`, `ciChecks`, `planReview`, `escalation`, `memory` -- these have accessor functions in `lib/config.sh` with hardcoded defaults. Existing configs with these keys still work (values are read if present, never stripped).
 
-**`$N1_HOME/config.json`** — assembled from sections above (where `$N1_HOME` was set during Fresh Setup or Migration):
+**`$N1_HOME/config.json`** — assembled from sections above for fresh setup:
 ```json
 {
   "version": "2.0.0",
@@ -66,24 +76,24 @@ Store it as-is (WSL-native path on WSL). Do not store worktree paths — if the 
 
 **`queue`** keys `tag`, `maxTickets`, `subtaskTimeoutMinutes`, `mergeOnFinish` (default `false`; `true` lets queue children merge after CI), `autoResolveNonCritical` (default `false`; `true` lets the orchestrating session answer non-critical child escalations itself) fall back to `defaults/queue.json`; set them in config.json only to override.
 
-The `models` object is empty by default — agent model defaults come from agent frontmatter. Only store per-agent overrides here.
+The `models` object is empty by default — Codex personas inherit the session model. Only store explicitly requested Codex overrides under `models.<persona>.codex`; preserve all other hosts' values.
 
-**Directory structure** (fresh setup only — migration handles this in the Migration Flow):
+**Directory structure** (fresh setup only):
 ```bash
 _raw=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
 [ -z "$_raw" ] && _raw=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
 PROJECT_NAME=$(printf '%s' "$_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
-N1_HOME="$HOME/.n1/$PROJECT_NAME"
+N1_HOME="${N1_HOME:-$HOME/.n1/$PROJECT_NAME}"
 mkdir -p "$N1_HOME/memory"
 git config --unset n1.home 2>/dev/null || true
 ```
 
-Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is not carried forward.
+Existing memory and telemetry stay in the shared project state directory.
 
 **`.gitignore` configuration** — detect existing coverage, then ask the user:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 WT_ROOT=$(n1_worktree_root)   # host default from HOST ROUTING, or worktree.root from config
 ```
 

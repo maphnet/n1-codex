@@ -1,7 +1,6 @@
 ---
 name: n1-clean
 description: "Clean up N1 worktrees. Lists worktrees, classifies by status, and offers to remove non-active ones."
-model: sonnet
 effort: low
 ---
 
@@ -9,7 +8,7 @@ effort: low
 
 ## Overview
 
-Manage the lifecycle of N1 worktrees. Lists all worktrees created by N1 (under the worktree root: `n1_worktree_root`, the Claude Code default directory (see HOST ROUTING)), classifies them by status, and offers to remove completed or abandoned ones. Memory in `$N1_HOME` is always preserved — only the worktree directory and its checkout are removed.
+Manage the lifecycle of N1 worktrees. Lists all worktrees created by N1 (under the worktree root: `n1_worktree_root`, the Codex default directory (see HOST ROUTING)), classifies them by status, and offers to remove completed or abandoned ones. Memory in `$N1_HOME` is always preserved — only the worktree directory and its checkout are removed.
 
 **Announce at start:** "I'm using the n1-clean skill to manage worktrees."
 
@@ -18,14 +17,14 @@ Manage the lifecycle of N1 worktrees. Lists all worktrees created by N1 (under t
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.
 
 All config reads use `n1_*_val` helpers (never cat config.json). All memory paths use `$N1_HOME/memory/$ID/`.
 
-- If `N1_HOME` is empty → "N1 is not configured. Run `/n1:n1-init` first." **STOP.**
+- If `N1_HOME` is empty → "N1 is not configured. Run `n1-codex:n1-init` first." **STOP.**
 
 ## Step 1: Discover Worktrees
 

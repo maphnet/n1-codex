@@ -1,99 +1,45 @@
 #!/usr/bin/env bash
-# Test: lib/preamble.sh sources without error and sets expected variables
+# Codex preamble source chain and isolated generated bootstrap.
 set -euo pipefail
-
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FAIL=0
-unset N1_SESSION_ID CLAUDE_CODE_SESSION_ID N1_STATE_DIR
-
-# Test 1: preamble.sh sources cleanly with CLAUDE_PLUGIN_ROOT set
-export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
-# n1_home requires git and config; just verify the source chain works
-(
-    source "$REPO_ROOT/lib/preamble.sh" 2>/dev/null
-    [ -n "$N1_ROOT" ] || { echo "FAIL: N1_ROOT not set"; exit 1; }
-    [ "$N1_ROOT" = "$REPO_ROOT" ] || { echo "FAIL: N1_ROOT='$N1_ROOT' != '$REPO_ROOT'"; exit 1; }
-    # step.sh functions should be available
-    type n1_step_begin >/dev/null 2>&1 || { echo "FAIL: n1_step_begin not available"; exit 1; }
-    type n1_verify_dependencies >/dev/null 2>&1 || { echo "FAIL: n1_verify_dependencies not available"; exit 1; }
-    echo "PASS: preamble sources cleanly and provides expected functions"
-) || FAIL=1
-
-# Test 2: preamble.sh sets N1_ROOT via PLUGIN_ROOT fallback
-unset CLAUDE_PLUGIN_ROOT
-export PLUGIN_ROOT="$REPO_ROOT"
-(
-    source "$REPO_ROOT/lib/preamble.sh" 2>/dev/null
-    [ "$N1_ROOT" = "$REPO_ROOT" ] || { echo "FAIL: PLUGIN_ROOT fallback N1_ROOT='$N1_ROOT'"; exit 1; }
-    echo "PASS: PLUGIN_ROOT fallback works"
-) || FAIL=1
-
-# Test 4: empty N1_ROOT triggers python3 host.json fallback (NP-180)
-unset CLAUDE_PLUGIN_ROOT
-unset PLUGIN_ROOT
-HOST_JSON="$HOME/.n1/host.json"
-if [ -f "$HOST_JSON" ]; then
-    EXPECTED=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-    (
-        source "$REPO_ROOT/lib/preamble.sh" 2>/dev/null
-        [ -n "$N1_ROOT" ] || { echo "FAIL: empty-env N1_ROOT is empty"; exit 1; }
-        [ "$N1_ROOT" = "$EXPECTED" ] || { echo "FAIL: empty-env N1_ROOT='$N1_ROOT' != '$EXPECTED'"; exit 1; }
-        echo "PASS: empty-env fallback resolves via host.json"
-    ) || FAIL=1
-else
-    echo "SKIP: empty-env fallback (no ~/.n1/host.json)"
-fi
-
-# Test 5 (NP-192 AC): a skill snippet run verbatim in a clean shell, with no python3
-# available, sources the libs through the hook-generated ~/.n1/preamble.sh shim
-# (temp HOME, never touches the real ~/.n1).
-PROBE_HOME=$(mktemp -d)
-NOPY_BIN="$PROBE_HOME/bin"; mkdir -p "$NOPY_BIN"
-for c in bash cat mkdir mv rm printf dirname basename grep sed git jq head tr awk date; do
-    p=$(command -v "$c") && ln -sf "$p" "$NOPY_BIN/$c"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+export HOME="$TMP/home"
+mkdir -p "$HOME/.n1/shared/memory/T-1" "$TMP/bin"
+export N1_HOME="$HOME/.n1/shared"
+printf '%s\n' '{}' > "$N1_HOME/config.json"
+printf '%s\n' 'Claude bootstrap sentinel' > "$HOME/.n1/preamble.sh"
+unset N1_SESSION_ID CODEX_THREAD_ID N1_STATE_DIR N1_HOST_FILE CODEX_PLUGIN_ROOT N1_PLUGIN_ROOT
+check() { [ "$2" = "$3" ] || { echo "FAIL: $1 expected '$2', got '$3'" >&2; exit 1; }; }
+# Direct sourcing uses this fork, never stale Claude environment or global facts.
+export CLAUDE_PLUGIN_ROOT=/stale PLUGIN_ROOT=/stale N1_ROOT=/stale
+source "$ROOT/lib/preamble.sh"
+check source-root "$ROOT" "$N1_ROOT"
+check shared-home "$HOME/.n1/shared" "$N1_HOME"
+type n1_step_begin >/dev/null
+type n1_verify_dependencies >/dev/null
+check persona n1-code-reviewer "$(n1_agent_type code-reviewer)"
+check persona-roundtrip code-reviewer "$(n1_persona_name "$(n1_agent_type code-reviewer)")"
+check foreign-persona "" "$(n1_persona_name n1:code-reviewer)"
+for effort in max ultra; do
+    printf '{"models":{"developer":{"codex":{"effort":"%s"}}}}\n' "$effort" > "$N1_HOME/config.json"
+    check "effort-$effort" "$(printf '\t%s' "$effort")" "$(n1_resolve_agent developer)"
+    cmd=$(n1_headless_cmd n1-start T-1 '' "$TMP/log" '' "$effort")
+    [[ "$cmd" = *model_reasoning_effort*"$effort"* ]]
 done
-echo '{"session_id":"s-probe","source":"startup"}' | env -i HOME="$PROBE_HOME" PATH="$NOPY_BIN" \
-    N1_STATE_DIR="$PROBE_HOME/.n1" N1_HOME="$PROBE_HOME/proj" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
-    bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-PROBE_OUT=$(cd "$PROBE_HOME" && env -i HOME="$PROBE_HOME" PATH="$NOPY_BIN" N1_HOME="$PROBE_HOME/proj" CLAUDE_CODE_SESSION_ID=s-probe \
-    bash -c 'source ~/.n1/preamble.sh && type n1_step_begin >/dev/null && echo "$N1_ROOT|$N1_HOME"' 2>&1) || true
-if [ "$PROBE_OUT" = "$REPO_ROOT|$PROBE_HOME/proj" ]; then
-    echo "PASS: clean-shell snippet resolves N1_ROOT and N1_HOME via ~/.n1/preamble.sh without python3"
-else
-    echo "FAIL: clean-shell probe got '$PROBE_OUT'"; FAIL=1
-fi
-rm -rf "$PROBE_HOME"
-
-# Test 5b (NP-204): direct `source lib/preamble.sh` with no harness env resolves through
-# this session's preamble file before host.json
-SESS_HOME=$(mktemp -d); mkdir -p "$SESS_HOME/sessions"
-printf 'N1_ROOT=%q\nsource "$N1_ROOT/lib/preamble.sh"\n' "$REPO_ROOT" > "$SESS_HOME/sessions/s-direct.preamble.sh"
-(
-    unset CLAUDE_PLUGIN_ROOT PLUGIN_ROOT
-    export N1_STATE_DIR="$SESS_HOME" CLAUDE_CODE_SESSION_ID=s-direct
-    source "$REPO_ROOT/lib/preamble.sh" 2>/dev/null
-    [ "$N1_ROOT" = "$REPO_ROOT" ] || { echo "FAIL: session-file fallback N1_ROOT='$N1_ROOT'"; exit 1; }
-    echo "PASS: no-env fallback resolves via sessions/<sid>.preamble.sh"
-) || FAIL=1
-rm -rf "$SESS_HOME"
-
-# Test 6 (NP-192): a preset valid N1_ROOT (as the shim sets it) wins over CLAUDE_PLUGIN_ROOT
-OTHER_ROOT=$(mktemp -d); mkdir -p "$OTHER_ROOT/lib"; cp "$REPO_ROOT/lib"/*.sh "$OTHER_ROOT/lib/"
-(
-    export N1_ROOT="$OTHER_ROOT" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
-    source "$REPO_ROOT/lib/preamble.sh" 2>/dev/null
-    [ "$N1_ROOT" = "$OTHER_ROOT" ] || { echo "FAIL: preset N1_ROOT='$N1_ROOT' != '$OTHER_ROOT'"; exit 1; }
-    echo "PASS: preset valid N1_ROOT wins over CLAUDE_PLUGIN_ROOT"
-) || FAIL=1
-rm -rf "$OTHER_ROOT"
-
-# Test 7 (NP-192): a preset invalid N1_ROOT (no lib/) falls through to the chain
-(
-    export N1_ROOT="/nonexistent/path" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
-    source "$REPO_ROOT/lib/preamble.sh" 2>/dev/null
-    [ "$N1_ROOT" = "$REPO_ROOT" ] || { echo "FAIL: invalid preset N1_ROOT did not fall through, got '$N1_ROOT'"; exit 1; }
-    echo "PASS: preset invalid N1_ROOT falls through to CLAUDE_PLUGIN_ROOT"
-) || FAIL=1
-
-echo ""
-exit "$FAIL"
+printf '%s\n' '{}' > "$N1_HOME/config.json"
+# Native env wins, an explicit alternate root is supported without Claude fallback.
+ALT="$TMP/alternate root"; mkdir -p "$ALT/lib"
+printf '%s\n' 'N1_ALT_LOADED=1' > "$ALT/lib/preamble.sh"
+check native-plugin "$ALT" "$(CODEX_PLUGIN_ROOT="$ALT" n1_plugin_root)"
+check explicit-plugin "$ALT" "$(unset CODEX_PLUGIN_ROOT; N1_PLUGIN_ROOT="$ALT" n1_plugin_root)"
+# Clean-shell bootstrap needs no Python and never overwrites Claude's shim.
+for c in bash cat mkdir mv rm dirname basename grep sed git jq head tr awk date find; do
+    p=$(command -v "$c") && ln -s "$p" "$TMP/bin/$c"
+done
+printf '%s\n' '{"session_id":"s-clean","source":"startup"}' | env -i HOME="$HOME" PATH="$TMP/bin" N1_HOME="$N1_HOME" CODEX_PLUGIN_ROOT="$ROOT" bash "$ROOT/hooks/session-start.sh" >/dev/null
+resolved=$(env -i HOME="$HOME" PATH="$TMP/bin" N1_HOME="$N1_HOME" CODEX_THREAD_ID=s-clean bash -c 'source ~/.n1-codex/preamble.sh && type n1_step_begin >/dev/null && printf "%s|%s" "$N1_ROOT" "$N1_HOME"')
+check clean-shell "$ROOT|$N1_HOME" "$resolved"
+check claude-shim 'Claude bootstrap sentinel' "$(< "$HOME/.n1/preamble.sh")"
+check codex-facts codex "$(jq -r .host "$HOME/.n1-codex/sessions/s-clean.json")"
+echo 'PASS: Codex preamble, persona identity, extended effort, clean-shell bootstrap'

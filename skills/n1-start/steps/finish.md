@@ -2,7 +2,7 @@
 **Finish gate.** `n1_finish_enabled` decides.
 
 ```bash
-source ~/.n1/preamble.sh
+source ~/.n1-codex/preamble.sh
 if n1_finish_enabled; then GATE_ENABLED=true; else GATE_ENABLED=false; fi
 n1_record_decision finish-gate "$GATE_ENABLED" '{"config":"n1_finish_enabled"}' "enabled=${GATE_ENABLED}"
 echo "finish-gate:${GATE_ENABLED}"

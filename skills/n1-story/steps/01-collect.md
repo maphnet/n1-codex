@@ -5,7 +5,7 @@
 Two input sources — combine both when available:
 
 1. **Argument** — the text passed after the command (brain dump). This is the primary intent signal.
-2. **Conversation** — prior messages in this Claude Code session. Summarize relevant context that relates to the argument or, if no argument, identify the main actionable outcome.
+2. **Conversation** — prior messages in this Codex session. Summarize relevant context that relates to the argument or, if no argument, identify the main actionable outcome.
 
 **Empty context guard:** If there is no argument AND no meaningful prior conversation, ask: "Please describe the feature or initiative you'd like to create a story for." Wait for the response, then use it as the argument.
 
@@ -24,7 +24,7 @@ Review the story seed. If it looks like a single atomic task with no meaningful 
 `| n1-story | mechanical | C | [auto] | Single-task scope detected — use n1-ticket? | Proceed with story | Use n1-ticket instead | mechanicalPrompts=auto | --- |`
 If `MP` is `ask`: continue to the prompt below.
 
-"This looks like a single task rather than a multi-part story. Would you like to use `/n1:n1-ticket` instead?"
+"This looks like a single task rather than a multi-part story. Would you like to use `n1-codex:n1-ticket` instead?"
 
 Soft gate — if the user says no, proceed with a story.
 
@@ -36,7 +36,7 @@ TRACKER_TYPE=$(n1_config_val '.tracker.type')
 PROJECT_KEY=$(n1_config_val '.tracker.projectKey')
 ```
 
-If `TRACKER_MCP` is empty or null, tell the user: "No tracker configured. Run `/n1:n1-init` to set up a tracker." **STOP.**
+If `TRACKER_MCP` is empty or null, tell the user: "No tracker configured. Run `n1-codex:n1-init` to set up a tracker." **STOP.**
 
 Read tracker operations:
 ```bash
@@ -54,7 +54,7 @@ EST_ENABLED=$(n1_config_val '.estimation.writeToTracker')
 
 **Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-proceed without subtask linking. Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
 `| n1-story | mechanical | C | [auto] | jc-mcp not configured — proceed without subtask linking? | Continue without linking | Cancel | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`: warn the user and wait for confirmation: "Subtask linking requires jc-mcp (`tracker.versionMcp`). Subtasks will be created as standalone tickets without a parent link. Configure jc-mcp via `/n1:n1-init` to enable linking. Continue anyway?" Soft gate — proceed if user accepts.
+If `MP` is `ask`: warn the user and wait for confirmation: "Subtask linking requires jc-mcp (`tracker.versionMcp`). Subtasks will be created as standalone tickets without a parent link. Configure jc-mcp via `n1-codex:n1-init` to enable linking. Continue anyway?" Soft gate — proceed if user accepts.
 
 **Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = story seed goal + known requirements (Step 1), and `SELF_ID` / `OVERVIEW` empty. **Stop** → cancel without creating anything. Keep the returned `DUP_LINKS` for Step 8.
 
@@ -64,7 +64,9 @@ Spawn the `solution-architect` agent for a deeper codebase analysis.
 
 Resolve model:
 ```bash
-IFS=$'\t' read -r MODEL EFFORT < <(n1_resolve_agent 'solution-architect' 'standard')
+AGENT_CONFIG=$(n1_resolve_agent 'solution-architect' 'standard')
+MODEL=${AGENT_CONFIG%%$'\t'*}
+EFFORT=${AGENT_CONFIG#*$'\t'}
 ```
 
 Pass both `MODEL` and `EFFORT` to the spawn.

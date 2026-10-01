@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# Deferred Claude background-session watch contract; not part of Codex milestone 1.
 # Tests for n1_queue_watch (lib/queue.sh): run_id filtering, cursor resume, terminal exit.
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PASS=0
 FAIL=0
 

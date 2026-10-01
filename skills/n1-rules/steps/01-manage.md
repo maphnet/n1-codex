@@ -4,7 +4,7 @@
 
 Parse the user's command from the invocation arguments. If no command given, show usage:
 ```
-Usage: /n1:n1-rules <command>
+Usage: n1-codex:n1-rules <command>
 
 Commands:
   list          Show all project rules
@@ -19,7 +19,7 @@ Commands:
 
 If `$RULES_DIR` is empty or the directory does not exist:
 ```
-No rules configured. Run /n1:n1-init to set up rules, or use /n1:n1-rules add to create one manually.
+No rules configured. Run n1-codex:n1-init to set up rules, or use n1-codex:n1-rules add to create one manually.
 ```
 **STOP.**
 
@@ -80,7 +80,7 @@ Which agents should check this rule?
 3 — Custom (enter comma-separated agent names)
 ```
 
-If option 2 selected, warn: "A rule that applies to every persona is usually a rule that belongs in CLAUDE.md instead. Continue? 1 — Yes / 2 — No"
+If option 2 selected, warn: "A rule that applies to every persona is usually a rule that belongs in AGENTS.md instead. Continue? 1 — Yes / 2 — No"
 
 Valid agent names: `product-analyst`, `solution-architect`, `planner`, `implementer`, `developer`, `code-reviewer`, `security-reviewer`, `qa-engineer`, `tech-writer`, `local-test-planner`
 

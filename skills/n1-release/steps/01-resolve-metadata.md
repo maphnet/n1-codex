@@ -31,6 +31,9 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
      if [ -f "package.json" ]; then
        VERSION=$(jq -r '.version' package.json)
        VERSION_SOURCE_DISPLAY="package.json"
+     elif [ -f ".codex-plugin/plugin.json" ]; then
+       VERSION=$(jq -r '.version' .codex-plugin/plugin.json)
+       VERSION_SOURCE_DISPLAY=".codex-plugin/plugin.json"
      elif [ -f ".claude-plugin/plugin.json" ]; then
        VERSION=$(jq -r '.version' .claude-plugin/plugin.json)
        VERSION_SOURCE_DISPLAY=".claude-plugin/plugin.json"
@@ -151,7 +154,7 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    Note: Sources C and D require `TAG` to exist, so their extraction runs after Step 5 (Execute) completes. The merge produces the final `RELEASE_TICKET_IDS` used by Steps 5b, 6, and 7.
 7. **Deployment actions** (runs now, before the Step 3 gate; the tag does not exist yet, so the range ends at the release target, not just `HEAD` — the tag itself is later created at `${MERGE_SHA:-HEAD}` in Step 5, and scanning `HEAD` would miss or misattribute commits when `MERGE_SHA` differs from `HEAD`). Collect the PR numbers:
    ```bash
-   source ~/.n1/preamble.sh
+   source ~/.n1-codex/preamble.sh
    PREV_TAG="<PREV_TAG, or empty>"
    MERGE_SHA="<MERGE_SHA, or empty>"
    RELEASE_TARGET="${MERGE_SHA:-HEAD}"
