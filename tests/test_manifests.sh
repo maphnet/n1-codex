@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# The two plugin manifests must be valid JSON and carry one identical version.
+# Codex must select the legacy manifest format, which supports lifecycle hooks.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
-for f in plugin.json .codex-plugin/plugin.json .agents/plugins/marketplace.json; do
+[ ! -e plugin.json ] || { echo "FAIL: root plugin.json disables Codex hook loading"; FAIL=1; }
+for f in .codex-plugin/plugin.json .agents/plugins/marketplace.json hooks/hooks.json; do
     [ -f "$f" ] || { echo "FAIL: missing $f"; FAIL=1; continue; }
     jq -e . "$f" >/dev/null 2>&1 || { echo "FAIL: invalid JSON $f"; FAIL=1; }
 done
-V1=$(jq -r .version plugin.json)
-V2=$(jq -r '.version' .codex-plugin/plugin.json)
-if [ "$V1" = "$V2" ] && [ -n "$V1" ]; then
-    echo "PASS: all manifests at $V1"
+VERSION=$(jq -r '.version // empty' .codex-plugin/plugin.json)
+if [ -n "$VERSION" ] && [ "$FAIL" = 0 ]; then
+    echo "PASS: Codex manifests at $VERSION"
 else
-    echo "FAIL: versions differ: claude=$V1 claude-mkt=$V2"; FAIL=1
+    echo "FAIL: invalid Codex packaging"; FAIL=1
 fi
 exit $FAIL
