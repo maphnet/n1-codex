@@ -32,6 +32,10 @@ echo "ARCHIVED=$ARCHIVED"
 
 Step `escalated` + non-headless: print `## Escalations`, move to `inProgress` (if `tracker.statuses.blocked` set), reset step per `procedures/autonomy-headless.md`.
 
+Evaluator escalation resumes at `procedures/evaluator.md`. For `step: evaluator`,
+or later pre-publication steps, revalidate there before PR; completion/checklist
+state never overrides a missing, failed, malformed or stale evaluator artifact.
+
 ```bash
 source ~/.n1-codex/preamble.sh
 n1_busy_guard "$N1_HOME/memory/$ID/overview.md" "$ID"

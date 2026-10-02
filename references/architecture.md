@@ -289,6 +289,17 @@ Optional complexity classification and delivery time estimation. Gated on `estim
 
 When `localTesting.enabled` is true, n1-start runs a local verification phase (Step 9) after Review and before PR. Behavior depends on `localTesting.mode` (configured by `n1-init`, or inferred by `n1_resolve_local_testing_mode`: `localTesting.autoLive: true` plus a root compose file -> `"live"`; startCommand present -> `"live"`; otherwise `"test"`):
 
+After that phase, `localTesting.evaluatorGate` (default false) independently enables
+the pre-PR evaluator in hands-off/headless runs. Both n1-start and standalone n1-pr
+use `skills/n1-start/procedures/evaluator.md`, solution-architect evaluator mode,
+and `scripts/evaluator.py` to validate complete per-AC results and current inputs.
+`evaluator.md` persists PASS/FAIL/SKIP and evidence; missing evidence fails, all
+non-verifiable criteria skip with reasons. A failed gate blocks push/PR until an
+explicit input-bound user waiver or a fix/retry; headless failures escalate and
+stop. Source/AC/evidence changes invalidate results and waivers, including changes
+during documentation preparation or rebase. Tech-writer includes the current
+summary and any waiver in PR Verification. Step 18 retains existing step numbers.
+
 - **`"live"`** (default when startCommand is configured): The local-test-planner discovers infrastructure, app startup (auto-detected or via `localTesting.startCommand` config override), and existing e2e test suites. Execution runs existing e2e tests first, then generates ad-hoc curl/CLI scenarios only for acceptance criteria not covered by the e2e suite. Enforces Runtime First mandate (NP-78).
 - **`"test"`** (default when no startCommand): Runs existing test suites only with no infrastructure startup. The planner suppresses Runtime First and produces test-suite-only plans.
 - **`"smoke"`** (cloud-native services): Skips the local-testing step entirely with `smoke_deferred` telemetry. After merge and deployment, n1-finish runs post-deploy verification (health endpoint check via `localTesting.smokeEndpoint`, custom commands via `localTesting.smokeTests`).

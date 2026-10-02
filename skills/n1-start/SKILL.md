@@ -60,6 +60,7 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 | 7b. REVIEW CROSS-REPO TELEMETRY | `procedures/cross-repo.md §7b` | |
 | 8. FIX (if FAIL) | `steps/fix.md` | |
 | 9. LOCAL TESTING | `steps/local-testing.md` | conditional |
+| 9b. AC EVALUATOR | `procedures/evaluator.md` | optional; independent of local testing |
 | 10. PR CREATION | `steps/pr.md` | |
 | 11. CI WATCH | `steps/ci.md` | conditional |
 | 11b. FINISH WORK | `steps/finish.md` | conditional |

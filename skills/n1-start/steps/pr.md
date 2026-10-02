@@ -9,6 +9,9 @@ Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"re
 
 **If `prMode` is `"skip"`**: skip n1-pr/push/`## Pending`; update overview, add ledger row, run telemetry, continue.
 
+Before invoking n1-pr, run `procedures/evaluator.md`; an enabled failed or invalid
+verdict blocks this step. n1-pr repeats validation after documentation and rebase.
+
 **REQUIRED SUB-SKILL:** `n1:n1-pr`. Pass: `docUpdateMode: "autonomous"`.
 
 > **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** do not add post-PR actions inline (CI watch, finish, smoke) — these are separate pipeline steps invoked after this step completes.

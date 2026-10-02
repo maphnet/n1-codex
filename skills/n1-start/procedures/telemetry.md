@@ -32,3 +32,4 @@ Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_r
 | 13 | `ci` | `{}` |
 | 14 | `finish` | `{}` |
 | 17 | `smoke` | `{"action_type":"smoke_executed","endpoint_status":<string\|null>,"tests_total":<int>,"tests_passed":<int>}` |
+| 18 | `evaluator` | `{"verdict":"PASS\|FAIL\|SKIP\|BLOCKED","waived":<bool>}` |

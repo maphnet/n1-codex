@@ -25,6 +25,7 @@ STANDARD_PATH_FILES=(
   "$SKILL_DIR/review-core.md"
   "$SKILL_DIR/ledger.md"
   "$SKILL_DIR/steps/fix.md"
+  "$SKILL_DIR/procedures/evaluator.md"
   "$SKILL_DIR/steps/pr.md"
   "$SKILL_DIR/steps/ci.md"
   "$SKILL_DIR/steps/finish.md"
@@ -36,6 +37,8 @@ STANDARD_PATH_FILES=(
 )
 
 MAX_STANDARD_BYTES=85010   # 80 KB + 692 bytes for n1-start assign-to-creator guard (NP-190) + 284 bytes for duplicate-check reference (NP-217) + 173 bytes for [plan] tag ledger docs (NP-203) + 318 bytes already over on main before NP-231 + 87 bytes for desc-hash-chain pointers (NP-231) + 336 bytes for orchestrator-only fork scope clause (NP-232) + 965 bytes for ID-reuse check + stale-branch archive (NP-235) + 182 bytes for PR-authorization sentence net of config-read trims (N1-57) + 147 bytes for scoped PR-authorization sentence rewrite (N1-57 review fix)
+
+MAX_STANDARD_BYTES=$((MAX_STANDARD_BYTES + 6800)) # N1-2: shared evaluator procedure and publication/resume wiring.
 
 # Investigation path extends the standard path with one additional step file.
 INVESTIGATION_PATH_FILES=(
