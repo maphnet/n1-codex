@@ -91,6 +91,18 @@ read-only reviewer behavior.
 
 ## Verification
 
+Optional acceptance evaluation: set `localTesting.evaluatorGate` to `true` (default
+`false`) to check every ticket/refined acceptance criterion before PR publication
+in hands-off runs. It also guards standalone `n1-pr` and runs independently of
+`localTesting.enabled` and smoke mode. Per-item verdicts/evidence persist in
+`$N1_HOME/memory/<ID>/evaluator.md` and the PR includes a summary.
+
+Failures block publication for a fix/retry or an explicit user waiver with a reason;
+headless failures escalate and stop. Resumes recheck source, AC and evidence inputs.
+Docs/config criteria with checkable outcomes are evaluated; all non-verifiable
+criteria skip with reasons. Missing AC or malformed/stale verdicts block. Disable
+the flag explicitly for projects where evaluation is unwanted.
+
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
 bash tests/test_host_lib.sh

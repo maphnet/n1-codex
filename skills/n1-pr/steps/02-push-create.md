@@ -26,7 +26,10 @@ git merge-base --is-ancestor origin/${DEFAULT_BRANCH} HEAD
 git rebase origin/${DEFAULT_BRANCH}
 ```
 
-**If rebase succeeds (exit 0):** Branch is clean. Push using `--force-with-lease` (required because rebase rewrites history):
+**If rebase succeeds (exit 0):** Revalidate using
+`<N1_ROOT>/skills/n1-start/procedures/evaluator.md` before pushing. Changed inputs
+require reevaluation and PR-body regeneration (Phase 2 only). A failed/invalid gate
+stops. Then push using `--force-with-lease` (required because rebase rewrites history):
 
 ```bash
 git push --force-with-lease -u origin ${CURRENT_BRANCH}
@@ -54,6 +57,9 @@ Resolve the following conflicts manually, then re-run n1-codex:n1-pr:
 
 When `merge-base` exit 0 (already up to date), push normally:
 
+First revalidate via `<N1_ROOT>/skills/n1-start/procedures/evaluator.md`; block on
+failed/invalid output and regenerate Phase 2 if the current result changed.
+
 ```bash
 git push -u origin ${CURRENT_BRANCH}
 ```
@@ -63,6 +69,10 @@ Then proceed to **Create PR** below.
 ### Create PR
 
 After a successful push (either path above):
+
+Recheck the evaluator procedure immediately before PR creation too. If inputs
+changed after push, stop, reevaluate, then push the evaluated commit before creating
+the PR. The PR summary must match the current validated evaluator.md.
 
 Draft: `gh pr create --title "<title>" --body "<body>" --base ${DEFAULT_BRANCH} --draft`
 Ready: same without `--draft`.

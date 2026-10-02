@@ -71,9 +71,20 @@ Tech-writer applies and commits without prompting.
 ### No stale docs found:
 Proceed to Step 3.
 
+## Acceptance-Criteria Gate
+
+Before Step 3, read and execute
+`<N1_ROOT>/skills/n1-start/procedures/evaluator.md`, including standalone calls.
+Run after Phase 1 commits documentation. An enabled gate requires ticket/AC
+memory; missing memory blocks rather than silently skipping. Failed or invalid
+verdicts stop before publication. Use only the validated current evaluator result.
+
 ## Step 3: Generate PR Content
 
 **If PR title and body provided as input** (e.g. from n1-start): use directly, skip tech-writer.
+
+When a current evaluator result exists, supplied content must include its verdict,
+counts, skip reasons and any waived failures; otherwise regenerate Phase 2.
 
 **Otherwise (standalone):**
 
@@ -92,7 +103,7 @@ BRAINSTORM_GATE_SKIPPED=false
 [ "${BRAINSTORM_MODE:-ask}" = "auto" ] && BRAINSTORM_GATE_SKIPPED=true
 ```
 
-Spawn tech-writer with: ticket ID, paths to `overview.md`/`review.md`/`qa.md`/`local-testing.md` (if exists)/`ticket.md` (if exists), git diff stat, Phase 1 doc update report, `description_quality: $DQ`, `brainstorm_gate_skipped: $BRAINSTORM_GATE_SKIPPED`.
+Spawn tech-writer with: ticket ID, paths to `overview.md`/`review.md`/`qa.md`/`local-testing.md` (if exists)/`ticket.md` (if exists), validated current `evaluator.md` (if gate ran), git diff stat, Phase 1 doc update report, `description_quality: $DQ`, `brainstorm_gate_skipped: $BRAINSTORM_GATE_SKIPPED`.
 
 Returns structured PR title and body.
 

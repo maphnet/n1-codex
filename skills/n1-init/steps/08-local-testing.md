@@ -2,6 +2,12 @@
 
 ## Local Testing Configuration
 
+`localTesting.evaluatorGate` defaults to `false` for fresh setup and remains
+unchanged on reconfiguration unless explicitly selected. It enables a separate
+pre-PR acceptance evaluator in hands-off/headless runs, even when local testing is
+disabled or smoke deferred. Users may set it to false for untestable projects;
+enabled gates classify AC individually and persist all-non-verifiable SKIP reasons.
+
 Ask whether N1 should run local end-to-end tests after implementation and review, before creating a PR. **Default is Yes.**
 
 ```

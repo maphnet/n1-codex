@@ -35,7 +35,7 @@
   "types": {
     "task": {
       "steps": ["ticket", "analysis", "brainstorm", "plan", "plan-review", "estimation",
-                 "implementation", "qa", "review", "local-testing", "pr", "ci", "finish", "release"],
+                 "implementation", "qa", "review", "local-testing", "evaluator", "pr", "ci", "finish", "release"],
       "detect": { "default": true }
     },
     "investigation": {
@@ -45,13 +45,13 @@
     "bug": {
       "steps": ["ticket", "analysis", "brainstorm", "plan",
                  "implementation", "qa", "review",
-                 "local-testing", "pr", "ci", "finish", "release"],
+                 "local-testing", "evaluator", "pr", "ci", "finish", "release"],
       "detect": { "type_field": "bug", "tags": ["bug"] },
       "step_overrides": {}
     },
     "chore": {
       "steps": ["ticket", "analysis", "implementation", "qa", "review",
-                 "pr", "ci", "finish", "release"],
+                 "evaluator", "pr", "ci", "finish", "release"],
       "detect": { "type_field": "chore", "tags": ["chore", "config", "deps"] },
       "step_overrides": {}
     }
@@ -68,7 +68,8 @@
     { "name": "review",         "number": 9,  "agent": "code-reviewer",         "reads": ["ticket.md", "brainstorm.md", "implementation.md", "qa.md"], "writes": ["review.md"] },
     { "name": "fix",            "number": 10, "agent": "developer",             "reads": ["implementation.md"],                                  "writes": ["implementation.md"] },
     { "name": "local-testing",  "number": 11, "agent": "developer",             "reads": ["implementation.md"],                                  "writes": ["local-testing.md"] },
-    { "name": "pr",             "number": 12, "agent": "tech-writer",           "reads": ["overview.md", "review.md", "qa.md", "implementation.md"], "writes": ["overview.md"] },
+    { "name": "evaluator",      "number": 18, "agent": "solution-architect",    "reads": ["ticket.md", "brainstorm.md?", "qa.md?", "local-testing.md?"], "writes": ["evaluator.md"] },
+    { "name": "pr",             "number": 12, "agent": "tech-writer",           "reads": ["overview.md", "review.md", "qa.md", "implementation.md", "evaluator.md?"], "writes": ["overview.md"] },
     { "name": "ci",             "number": 13, "agent": "developer",             "reads": ["overview.md", "plan.md", "implementation.md"],        "writes": ["overview.md"] },
     { "name": "finish",         "number": 14, "agent": "n1:n1-finish",          "reads": ["overview.md"],                                        "writes": ["overview.md"] },
     { "name": "investigation-deliverable", "number": 15, "agent": "solution-architect", "reads": ["ticket.md", "analysis.md", "brainstorm.md"], "writes": ["investigation.md"] },
@@ -102,6 +103,7 @@
     { "name": "estimation",    "config_key": "estimation.enabled",     "default": false, "skips": ["estimation"] },
     { "name": "plan_review",   "config_key": "planReview.reviewPlan",  "default": true,  "skips": ["plan-review"] },
     { "name": "local_testing", "config_key": "localTesting.enabled",   "default": true, "skips": ["local-testing"] },
+    { "name": "evaluator",     "config_key": "localTesting.evaluatorGate", "default": false, "skips": ["evaluator"] },
     { "name": "ci",            "config_key": "ciChecks.enabled",       "default": true,  "skips": ["ci"] },
     { "name": "finish",        "config_key": "finishWork.enabled",     "default": false, "skips": ["finish"] },
     { "name": "release",       "config_key": "release.enabled",        "default": false, "skips": ["release"] }

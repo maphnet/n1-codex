@@ -120,6 +120,13 @@ Generate the PR title and body from implementation context.
 
 4b. **Read ticket.md** (if provided) for the original ticket description — extract a 1-2 sentence summary of the core ask or problem being solved. Skip this step if ticket.md was not provided.
 
+4c. **Read evaluator.md** only when provided as a validated current gate result.
+Add `Acceptance evaluator: PASS|FAIL|SKIP — N pass, N fail, N skipped` under
+Verification. Include reasons for skipped items and every failed item. For a waived
+FAIL, retain FAIL and include the user's waiver reason from overview.md; never
+present a waiver as PASS. When the gate did not run, omit stale evaluator artifacts.
+Phase 2 writes PR content only and must not modify source or docs.
+
 5. **Merge verification items.** If local-testing.md was provided, build the unified verification checklist:
 
    **a. Match items.** For each local testing scenario, find the QA verification step that describes the same behavior (e.g., QA "Create user via API returns 201" matches local "Create user — POST /api/users, expected 201"). When uncertain whether two items match, do NOT merge them — keeping a near-duplicate is better than incorrectly marking a QA item as verified by the wrong scenario.

@@ -42,7 +42,8 @@ Do not populate `CHANGES` with the fresh-setup example or defaults. If no settin
   },
   "localTesting": {
     "enabled": true,
-    "mode": "test"
+    "mode": "test",
+    "evaluatorGate": false
   },
   "finishWork": {
     "enabled": false
