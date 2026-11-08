@@ -8,6 +8,12 @@ argument-hint: "<ticket-id>... | --status <queue-id> | --stop <queue-id> | --res
 
 Process exactly the explicit ordered ticket list with at most one unsettled Codex worker. Each ticket runs N1 through PR and CI. Neither worker nor coordinator may merge; no Stop hook is assumed.
 
+Integration mode is opt-in. Intake may use `init ... --grant <json-file>` only
+when the grant contains the canonical checkout/origin, verified `default_ref`,
+an explicit non-default `integration_ref`, and `approval.scope` set to
+`integration-only`. The queue persists that identity and exact target tip; later
+configuration, ticket text, or PR metadata cannot authorize another branch.
+
 | Interface | Action |
 | --- | --- |
 | `n1-queue <ticket-id>...` | Start exactly this ticket list |

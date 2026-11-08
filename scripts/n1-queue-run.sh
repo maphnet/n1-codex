@@ -38,6 +38,27 @@ def git(repo, *args):
     return result.stdout.strip()
 
 
+def origin_identity(repo):
+    """Return the provider's canonical host/path identity for this checkout."""
+    remote = git(repo, 'config', '--get', 'remote.origin.url')
+    if remote.startswith('git@') and ':' in remote:
+        host, path = remote[4:].split(':', 1)
+        return host + '/' + path.removesuffix('.git')
+    parsed = urlsplit(remote)
+    if not parsed.hostname and remote:
+        return str(Path(remote).expanduser().resolve())
+    require(parsed.hostname and parsed.path, 'Origin remote has no canonical identity')
+    return parsed.hostname + parsed.path.removesuffix('.git')
+
+
+def branch_name(value):
+    require(isinstance(value, str) and value and not value.startswith('refs/'),
+            'Integration target must be a branch name')
+    require(not SHA.fullmatch(value) and '@{' not in value and not any(c in value for c in '^~:?*\\\\'),
+            'Integration target must be a branch name')
+    return value
+
+
 def save(path, state):
     name = None
     try:
@@ -69,6 +90,11 @@ def validate(state, queue):
             'Unreadable or unknown-version queue state')
     require(state.get('queue_id') == queue and isinstance(state.get('repo'), str)
             and isinstance(state.get('base_ref'), str), 'Invalid queue identity')
+    for key in ('default_ref', 'integration_ref', 'origin_repo', 'integration_sha'):
+        require(key in state, 'Missing queue target identity')
+    if state['integration_ref'] is not None:
+        require(isinstance(state['integration_ref'], str) and isinstance(state['origin_repo'], str)
+                and SHA.fullmatch(state['integration_sha']), 'Invalid integration target')
     require(type(state.get('revision')) is int and state['revision'] >= 0
             and state.get('status') in STATUSES, 'Invalid queue revision or status')
     require(isinstance(state.get('tickets'), list) and state['tickets'], 'Invalid tickets')
@@ -437,11 +463,39 @@ def main():
     directory = Path(home) / 'queue' / queue
     if command == 'init':
         require(len(rest) >= 3, 'init requires repo, base and explicit tickets')
-        repo, base, *tickets = rest
+        repo, base, *items = rest
+        grant = None
+        if '--grant' in items:
+            index = items.index('--grant')
+            require(index + 1 < len(items), 'init --grant requires a JSON file')
+            with open(items[index + 1]) as source:
+                grant = json.load(source)
+            items = items[:index] + items[index + 2:]
+        tickets = items
         require(all(ID.fullmatch(ticket) for ticket in tickets)
                 and len(set(tickets)) == len(tickets), 'Invalid or duplicate ticket IDs')
         repo = git(repo, 'rev-parse', '--show-toplevel')
-        git(repo, 'check-ref-format', 'refs/heads/' + base.removeprefix('refs/heads/'))
+        base = branch_name(base)
+        git(repo, 'check-ref-format', '--branch', base)
+        origin = origin_identity(repo)
+        default_ref, integration_ref, integration_sha = base, None, None
+        if grant is not None:
+            require(isinstance(grant, dict), 'Invalid integration grant')
+            require(grant.get('repo') == repo and grant.get('origin') == origin,
+                    'Integration grant repository or origin mismatch')
+            require(grant.get('default_ref') == base and grant.get('approval', {}).get('scope') == 'integration-only'
+                    and isinstance(grant.get('approval', {}).get('source'), str)
+                    and grant['approval']['source'].strip(), 'Invalid integration approval')
+            integration_ref = branch_name(grant.get('integration_ref'))
+            require(integration_ref != base, 'Integration target cannot be the default branch')
+            git(repo, 'check-ref-format', '--branch', integration_ref)
+            remote_default = git(repo, 'ls-remote', '--exit-code', 'origin', 'refs/heads/' + base).split()
+            require(remote_default and SHA.fullmatch(remote_default[0]), 'Default branch is unavailable')
+            target = 'refs/heads/' + integration_ref
+            tracking = 'refs/remotes/origin/' + integration_ref
+            git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', 'origin', '+' + target + ':' + tracking)
+            integration_sha = git(repo, 'rev-parse', '--verify', tracking + '^{commit}')
+            require(SHA.fullmatch(integration_sha), 'Integration target tip is unavailable')
         directory.mkdir(parents=True, exist_ok=True)
     else:
         require(directory.is_dir(), 'Queue not found')
@@ -450,8 +504,11 @@ def main():
         path = directory / 'state.json'
         if command == 'init':
             require(not path.exists(), 'Queue already exists; never reset persisted state')
-            state = {'version': 1, 'queue_id': queue, 'repo': repo, 'base_ref': base,
-                     'base_sha': None, 'revision': 0, 'status': 'pending', 'run_id': None,
+            state = {'version': 1, 'queue_id': queue, 'repo': repo,
+                     'base_ref': integration_ref or base,
+                     'default_ref': default_ref, 'integration_ref': integration_ref,
+                     'origin_repo': origin, 'integration_sha': integration_sha,
+                     'base_sha': integration_sha, 'revision': 0, 'status': 'pending', 'run_id': None,
                      'intent': None, 'receipt': None, 'evidence': [], 'events': [],
                      'tickets': [{'ticket': ticket, 'status': 'pending', 'blocker_snapshot': None}
                                  for ticket in tickets]}

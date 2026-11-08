@@ -6,6 +6,12 @@ Read every named ticket and inbound blockers. Preserve every ticket, order, know
 
 Choose and report a fresh safe queue ID. Initialize once:
 `n1_queue_state init <queue-id> <canonical-repo> <base-ref> <ticket-id>...`.
+For an integration queue, the coordinator must also pass `--grant <json-file>`.
+The grant records the canonical repository and origin, the independently verified
+default branch, one explicit non-default `integration_ref`, and an approval with
+`scope: integration-only`. The target is fetched and its exact tip is persisted
+as `integration_sha`; a missing or ambiguous grant pauses intake. A configuration
+hint or branch naming convention never grants permission.
 Never reset or overwrite a queue. State lives at `$N1_HOME/queue/<queue-id>/state.json`; access it through bounded helpers, never direct edits.
 
 Before every selection, including after resume, refresh every pending/blocked ticket's tracker proof. Fetch the target base without checkout or base mutation, pin its SHA, independently establish each blocker's verified merged commit, and verify ancestry with `git merge-base --is-ancestor <merged-sha> <base-sha>`. A completed PR or done tracker status alone is insufficient. Write JSON using file tools, never shell interpolation of tracker text, then persist:
