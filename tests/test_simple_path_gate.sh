@@ -92,7 +92,7 @@ check "T14: files_changed=0 fires"                    simple  task  low  0 false
 # T15-T17: telemetry recording
 # ---------------------------------------------------------------------------
 fixture simple task low 2 false ""
-unset N1_SESSION_ID CODEX_THREAD_ID
+unset N1_SESSION_ID CODEX_THREAD_ID N1_RUN_ID
 export N1_SESSION_ID=test-session
 echo '{"run_id":"run-sp","n1_version":"3.4.0","host":"codex","ticket_id":"SP-1","session_id":"test-session"}' > "$TELEM/telemetry.lock"
 n1_record_decision simple-path true "$COND" "tier=simple" "type=task" "blast=low" "files_changed=2" "security_relevant=false" "has_bug_root_cause="
