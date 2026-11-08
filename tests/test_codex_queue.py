@@ -278,6 +278,17 @@ class Queue(unittest.TestCase):
             'receipt': {'failure': 'inaccessible'}, 'verified': False})
         self.assertEqual(state['status'], 'paused')
 
+    def test_unsupported_optional_reference_records_no_mutation(self):
+        self.launch()
+        self.operation('intent', {'operation': 'reference-add', 'ticket': 'NC-1',
+                                 'request_id': 'reference-1', 'urls': ['https://example.test/issue/1']})
+        state = self.operation('receipt', {'request_id': 'reference-1',
+            'receipt': {'error': 'Unknown command: reference add'}, 'verified': True})
+        self.assertEqual(state['status'], 'active')
+        self.assertEqual(state['intent']['operation'], 'recorded')
+        self.settled_wake()
+        self.assertEqual(self.operation('evidence', self.completion())['status'], 'succeeded')
+
     def test_completion_requires_recorded_successful_worker_done(self):
         self.launch()
         state = self.operation('evidence', self.completion())
