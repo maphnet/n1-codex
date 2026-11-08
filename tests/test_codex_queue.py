@@ -128,11 +128,12 @@ class Queue(unittest.TestCase):
         self.assertEqual(len(state['evidence']), 5)
 
     def test_missing_failed_stale_or_unknown_checks_pause(self):
-        self.launch()
-        self.settled_wake()
         original = self.completion()
         import copy
         for problem in ('missing', 'failed', 'stale', 'empty', 'unsettled', 'branch'):
+            self.env['N1_HOME'] = str(self.root / problem)
+            self.launch()
+            self.settled_wake()
             data = copy.deepcopy(original)
             if problem == 'missing':
                 data['ci']['checks'] = []
@@ -158,6 +159,10 @@ class Queue(unittest.TestCase):
         payload['ci']['commit'] = payload['ci']['checks'][0]['commit'] = merge
         payload['verified_pr'].update(test_merge_commit=merge, test_merge_head='0' * 40)
         self.assertEqual(self.operation('evidence', payload)['status'], 'paused')
+        self.operation('evidence', payload, ok=False)
+        self.env['N1_HOME'] = str(self.root / 'matching-test-merge')
+        self.launch()
+        self.settled_wake()
         payload['verified_pr']['test_merge_head'] = self.sha
         self.assertEqual(self.operation('evidence', payload)['status'], 'succeeded')
 
@@ -167,6 +172,19 @@ class Queue(unittest.TestCase):
                                         'messages': [{'type': 'question', 'body': 'permission?'}]})
         self.assertEqual(state['status'], 'paused')
         self.assertEqual(state['evidence'][-1]['messages'][0]['type'], 'question')
+
+    def test_mixed_worker_done_and_attention_wake_cannot_succeed(self):
+        for kind in ('question', 'escalation', 'permission'):
+            with self.subTest(kind=kind):
+                self.env['N1_HOME'] = str(self.root / kind)
+                self.launch()
+                state = self.operation('wake', {'receipt': {'next': 'yield'}, 'messages': [
+                    {'type': 'worker_done', 'dispatch_id': 'dispatch-1',
+                     'outcome': 'succeeded', 'settled': True},
+                    {'type': kind, 'body': 'Coordinator attention required'}]})
+                self.assertEqual(state['status'], 'paused')
+                self.operation('evidence', self.completion(), ok=False)
+                self.assertEqual(self.call('status', 'queue-1'), state)
 
     def test_reference_attachment_is_durable_and_failure_pauses(self):
         self.launch()

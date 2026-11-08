@@ -289,6 +289,8 @@ def wake(state, payload):
 
 def completion(state, payload):
     ticket = assigned(state)
+    require(state['status'] == 'active' and ticket['status'] == 'active',
+            'Completion requires an active assignment; resolve the pause before resuming')
     require(ticket.get('dispatch_id') and payload.get('dispatch_id') == ticket['dispatch_id'],
             'Completion assignment mismatch')
     done, pr, verified, ci = (payload.get(key, {}) for key in
