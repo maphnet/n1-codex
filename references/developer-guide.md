@@ -57,7 +57,7 @@ Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without
 
 ## Plugin Development
 
-**Always develop via `--plugin-dir`** — it loads the **working tree live** (uncommitted edits included). No install, no commit, no version bump, no reinstall.
+**Always develop via `--plugin-dir`** — it loads the **working tree live** (uncommitted edits included), while the branch still follows the project requirement to bump the plugin version for every N1 pipeline change.
 
 ```
 claude --plugin-dir ~/dev/n1-plugin   # from a test project

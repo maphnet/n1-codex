@@ -24,6 +24,8 @@ Use subagents selectively for independent work, with disjoint write ownership.
 Use Sol for implementation and Luna for bounded checks. Reserve Astra for high-level
 architecture, a final whole-branch review, or escalation after two failed fixes.
 Use the writing-skills guidance when modifying workflow instructions.
+Every N1 pipeline change must include a plugin version bump in the same branch,
+using `scripts/bump-version.sh <new-version>` to update `.codex-plugin/plugin.json`.
 Run relevant shell suites and `python3 -m unittest discover -s tests -p 'test_*.py'`.
 Do not report end-to-end validation without a live Codex run.
 
