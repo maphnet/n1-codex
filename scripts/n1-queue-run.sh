@@ -383,11 +383,11 @@ def completion(state, payload):
     commit = ci.get('commit')
     remote = subprocess.run(['git', '-C', state['repo'], 'config', '--get', 'remote.origin.url'],
                             capture_output=True, text=True, timeout=60).stdout.strip()
-    match = re.fullmatch(r'(?:https://|ssh://(?:[^@/]+@)?)([^/:]+)(?::[0-9]+)?/(.+?)(?:\.git)?/?', remote)
+    match = re.fullmatch(r'(?:https://|ssh://(?:[^@/]+@)?)([^/:]+(?::[0-9]+)?)/(.+?)(?:\.git)?/?', remote)
     if not match:
         match = re.fullmatch(r'[^@/]+@([^:]+):(.+?)(?:\.git)?/?', remote)
     url = urlsplit(pr.get('url', '') if isinstance(pr.get('url'), str) else '')
-    canonical = bool(match and url.scheme == 'https' and url.hostname == match.group(1).lower()
+    canonical = bool(match and url.scheme == 'https' and url.netloc.lower() == match.group(1).lower()
                      and pr.get('repo') == match.group(2)
                      and url.path.startswith('/' + match.group(2) + '/'))
     settled = any(message.get('type') == 'worker_done'
