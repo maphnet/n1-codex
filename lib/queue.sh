@@ -13,6 +13,11 @@ n1_queue_val() {
     printf '%s' "$val"
 }
 
+n1_queue_state() {
+    # Bounded durable-state operations; never launch or poll workers here.
+    bash "$(n1_plugin_root)/scripts/n1-queue-run.sh" "$@"
+}
+
 n1_story_parse_service() {
     # Usage: n1_story_parse_service <title>
     # Prints the service tag from "<service> | <title>" or nothing.
