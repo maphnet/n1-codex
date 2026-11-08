@@ -53,6 +53,168 @@ class Queue(unittest.TestCase):
             self.call('init', queue, self.repo, 'main', *tickets, ok=False)
         self.assertFalse((self.root / 'home/queue/valid/state.json').exists())
 
+    def operation(self, command, payload, ok=True):
+        state = self.call('status', 'queue-1')
+        path = self.root / 'operation.json'
+        path.write_text(json.dumps(payload))
+        return self.call(command, 'queue-1', state['revision'], path, ok=ok)
+
+    def reserve(self):
+        self.init('NC-1')
+        self.transition(0, self.proof('NC-1'))
+        self.call('select', 'queue-1')
+
+    def launch(self, record_start=True):
+        self.reserve()
+        for operation, identity in [('run-create', {'run_id': 'run-1'}),
+                                    ('task-create', {'task_id': 'task-1'}),
+                                    ('worker-start', {'dispatch_id': 'dispatch-1',
+                                                     'workspace': 'workspace-1',
+                                                     'branch': 'actual-branch',
+                                                     'repo': str(self.repo), 'ticket': 'NC-1'})]:
+            request = {'operation': operation, 'request_id': operation,
+                       'ticket': 'NC-1'}
+            if operation == 'worker-start':
+                request.update(repo=str(self.repo), base='main',
+                               placement={'mode': 'new-top-level', 'repo_selector': 'id:repo-1'})
+            self.operation('intent', request)
+            if operation == 'worker-start' and not record_start:
+                return
+            self.operation('receipt', {'request_id': operation, 'receipt': {'native': operation},
+                                      'verified': True, 'identity': identity})
+
+    def completion(self):
+        return {'dispatch_id': 'dispatch-1', 'worker_done': {'outcome': 'succeeded',
+                'settled': True}, 'workflow_complete': True,
+                'pr': {'url': 'https://example.test/owner/repo/pull/1',
+                       'repo': 'owner/repo', 'branch': 'actual-branch', 'head': self.sha},
+                'verified_pr': {'repo': 'owner/repo', 'branch': 'actual-branch',
+                                'head': self.sha},
+                'ci': {'commit': self.sha, 'expected': ['build'],
+                       'checks': [{'identity': 'build', 'commit': self.sha,
+                                   'conclusion': 'success'}]}}
+
+    def settled_wake(self):
+        return self.operation('wake', {'receipt': {'native': 'check'}, 'messages': [
+            {'type': 'worker_done', 'dispatch_id': 'dispatch-1', 'outcome': 'succeeded', 'settled': True}]})
+
+    def test_intent_crash_and_ambiguous_receipt_never_allow_second_start(self):
+        self.reserve()
+        request = {'operation': 'run-create', 'ticket': 'NC-1', 'request_id': 'request-1'}
+        self.operation('intent', request)
+        self.operation('intent', request, ok=False)
+        state = self.operation('receipt', {'request_id': 'request-1',
+                               'receipt': {'outcome': 'unknown'}, 'verified': False})
+        self.assertEqual(state['status'], 'paused')
+        self.assertIsNone(self.call('select', 'queue-1')['selected'])
+        self.operation('intent', request, ok=False)
+
+    def test_worker_start_crash_or_unknown_result_never_redispatches(self):
+        self.launch(record_start=False)
+        self.assertIsNone(self.call('select', 'queue-1')['selected'])
+        request = {'operation': 'worker-start', 'request_id': 'another-request', 'ticket': 'NC-1'}
+        self.operation('intent', request, ok=False)
+        state = self.operation('receipt', {'request_id': 'worker-start', 'verified': False,
+                               'receipt': {'outcome_unknown': True, 'next': 'inspect exact dispatch'}})
+        self.assertEqual(state['status'], 'paused')
+        self.operation('intent', request, ok=False)
+
+    def test_matching_worker_pr_workflow_and_ci_succeed(self):
+        self.launch()
+        self.settled_wake()
+        state = self.operation('evidence', self.completion())
+        self.assertEqual(state['tickets'][0]['status'], 'succeeded')
+        self.assertIsNone(state['intent'])
+        self.assertEqual(len(state['evidence']), 5)
+
+    def test_missing_failed_stale_or_unknown_checks_pause(self):
+        self.launch()
+        self.settled_wake()
+        original = self.completion()
+        import copy
+        for problem in ('missing', 'failed', 'stale', 'empty', 'unsettled', 'branch'):
+            data = copy.deepcopy(original)
+            if problem == 'missing':
+                data['ci']['checks'] = []
+            elif problem == 'failed':
+                data['ci']['checks'][0]['conclusion'] = 'failure'
+            elif problem == 'stale':
+                data['ci']['checks'][0]['commit'] = '0' * 40
+            elif problem == 'empty':
+                data['ci']['expected'] = []
+            elif problem == 'branch':
+                data['verified_pr']['branch'] = 'other'
+            else:
+                data['worker_done']['settled'] = False
+            state = self.operation('evidence', data)
+            self.assertEqual(state['status'], 'paused', problem)
+            self.assertIsNone(self.call('select', 'queue-1')['selected'])
+
+    def test_applicable_test_merge_commit_is_accepted_only_for_matching_head(self):
+        self.launch()
+        self.settled_wake()
+        payload = self.completion()
+        merge = '1' * 40
+        payload['ci']['commit'] = payload['ci']['checks'][0]['commit'] = merge
+        payload['verified_pr'].update(test_merge_commit=merge, test_merge_head='0' * 40)
+        self.assertEqual(self.operation('evidence', payload)['status'], 'paused')
+        payload['verified_pr']['test_merge_head'] = self.sha
+        self.assertEqual(self.operation('evidence', payload)['status'], 'succeeded')
+
+    def test_question_wake_is_durable_and_pauses(self):
+        self.launch()
+        state = self.operation('wake', {'receipt': {'next': 'yield'},
+                                        'messages': [{'type': 'question', 'body': 'permission?'}]})
+        self.assertEqual(state['status'], 'paused')
+        self.assertEqual(state['evidence'][-1]['messages'][0]['type'], 'question')
+
+    def test_reference_attachment_is_durable_and_failure_pauses(self):
+        self.launch()
+        self.operation('intent', {'operation': 'reference-add', 'ticket': 'NC-1',
+                                 'request_id': 'reference-1', 'urls': ['https://example.test/issue/1']})
+        state = self.operation('receipt', {'request_id': 'reference-1',
+            'receipt': {'failure': 'inaccessible'}, 'verified': False})
+        self.assertEqual(state['status'], 'paused')
+
+    def test_completion_requires_recorded_successful_worker_done(self):
+        self.launch()
+        state = self.operation('evidence', self.completion())
+        self.assertEqual(state['status'], 'paused')
+
+    def test_malformed_nested_evidence_is_rejected_without_state_change(self):
+        self.launch()
+        before = self.call('status', 'queue-1')
+        self.operation('wake', {'receipt': {}, 'messages': ['invalid']}, ok=False)
+        self.assertEqual(self.call('status', 'queue-1'), before)
+        payload = self.completion()
+        payload['ci'] = None
+        self.operation('evidence', payload, ok=False)
+        self.assertEqual(self.call('status', 'queue-1'), before)
+
+    def test_receipt_cannot_replace_ticket_history_or_identity(self):
+        self.reserve()
+        self.operation('intent', {'operation': 'run-create', 'ticket': 'NC-1', 'request_id': 'r'})
+        self.operation('receipt', {'request_id': 'r', 'receipt': {'raw': True},
+            'verified': True, 'identity': {'run_id': 'run-1', 'blocker_snapshot': None}}, ok=False)
+
+    def test_existing_workspace_requires_exact_ticket_repo_branch_and_assignment(self):
+        self.reserve()
+        for operation, identity in [('run-create', {'run_id': 'run-1'}),
+                                    ('task-create', {'task_id': 'task-1'})]:
+            self.operation('intent', {'operation': operation, 'ticket': 'NC-1',
+                                     'request_id': operation})
+            self.operation('receipt', {'request_id': operation, 'receipt': {'raw': True},
+                                      'verified': True, 'identity': identity})
+        for bad in ('repo', 'ticket', 'branch', 'conflicting_assignment'):
+            binding = {'identity': 'workspace-1', 'repo': str(self.repo),
+                       'ticket': 'NC-1', 'branch': 'actual', 'conflicting_assignment': False,
+                       'verified': True}
+            binding[bad] = True if bad == 'conflicting_assignment' else 'wrong'
+            self.operation('intent', {'operation': 'worker-start', 'ticket': 'NC-1',
+                'request_id': 'start', 'repo': str(self.repo), 'base': 'main',
+                'expected_branch': 'actual', 'placement': {'mode': 'existing', 'binding': binding}},
+                ok=False)
+
     def test_init_never_selects_and_status_is_read_only(self):
         state = self.init('NC-2', 'NC-1')
         self.assertEqual([t['ticket'] for t in state['tickets']], ['NC-2', 'NC-1'])

@@ -40,4 +40,15 @@ check brief 'Brief with "quotes" and $literal' "${argv[8]}"
 check child-identity 'unset|unset|parent' "${argv[9]}"
 [[ "$cmd" != *bypass* && "$cmd" != *permission-mode* ]]
 if n1_headless_cmd n1-start T-1 '' "$TMP/log" '' 'high";x' >/dev/null 2>&1; then exit 1; fi
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@"' > "$TMP/orca"
+chmod +x "$TMP/orca"
+cmd=$(n1_orca_worker_start_cmd "$TMP/orca" run-1 task-1 existing workspace-1 '' '' high)
+result=$(bash -c "$cmd")
+[[ "$result" = *identity:workspace-1* && "$result" != *--repo* && "$result" != *--effort* ]]
+cmd=$(n1_orca_worker_start_cmd "$TMP/orca" run-1 task-1 new-top-level id:repo-1 main gpt-6.1-sol high)
+result=$(bash -c "$cmd")
+[[ "$result" = *--base-branch* && "$result" = *gpt-6.1-sol* && "$result" = *--effort* ]]
+[[ "$result" != *permission* && "$result" != *bypass* ]]
+if n1_orca_worker_start_cmd "$TMP/orca" run-1 task-1 existing '' '' >/dev/null 2>&1; then exit 1; fi
+if n1_orca_worker_start_cmd "$TMP/orca" run-1 task-1 new-top-level guessed main >/dev/null 2>&1; then exit 1; fi
 echo 'PASS: Codex host and transport'

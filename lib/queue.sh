@@ -14,7 +14,8 @@ n1_queue_val() {
 }
 
 n1_queue_state() {
-    # Bounded durable-state operations; never launch or poll workers here.
+    # Bounded state operations, including intent/receipt/wake/evidence recording.
+    # The coordinator supplies full receipts and verified identities; never launch or poll here.
     bash "$(n1_plugin_root)/scripts/n1-queue-run.sh" "$@"
 }
 

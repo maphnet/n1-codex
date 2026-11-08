@@ -172,10 +172,173 @@ def select(state):
     return {'selected': selected['ticket'] if selected else None, 'reasons': reasons, 'state': state}
 
 
+def assigned(state):
+    intent = state['intent']
+    require(isinstance(intent, dict), 'No reserved assignment')
+    return next(t for t in state['tickets'] if t['ticket'] == intent['ticket'])
+
+
+def pause(state, reason):
+    ticket = assigned(state)
+    ticket['status'] = state['status'] = 'paused'
+    event(state, ticket['ticket'], 'paused', reason)
+
+
+def launch_intent(state, payload):
+    ticket = assigned(state)
+    operation = payload.get('operation')
+    require(state['status'] == 'launching' or (state['status'] == 'active'
+            and operation == 'reference-add'), 'Queue is not ready to mutate')
+    previous = state['intent']
+    require(previous['operation'] in {'selection', 'recorded'},
+            'Uncertain mutation; reconcile its exact identity before continuing')
+    require(operation in {'run-create', 'task-create', 'worker-start', 'reference-add'},
+            'Unsupported external mutation')
+    require(payload.get('ticket') == ticket['ticket'] and
+            isinstance(payload.get('request_id'), str) and payload['request_id'],
+            'Intent requires ticket and request identity')
+    require(not any(e.get('request_id') == payload['request_id'] for e in state['evidence']),
+            'Request identity already recorded')
+    if operation == 'run-create':
+        require(state['run_id'] is None, 'Run already established')
+    else:
+        require(state['run_id'], 'Persist the Run receipt first')
+    if operation == 'task-create':
+        require(not ticket.get('task_id'), 'Task already established')
+    if operation == 'worker-start':
+        require(ticket.get('task_id') and not ticket.get('dispatch_id'),
+                'Persist the Task receipt first; never start twice')
+        require(payload.get('repo') == state['repo'] and payload.get('base') == state['base_ref'],
+                'Launch repository or base mismatch')
+        placement = payload.get('placement', {})
+        require(isinstance(placement, dict), 'Invalid placement')
+        require(not placement.get('configured_root'), 'Configured placement cannot be honored')
+        if placement.get('mode') == 'existing':
+            binding = placement.get('binding', {})
+            require(isinstance(binding, dict), 'Invalid workspace binding')
+            require(binding.get('verified') is True and binding.get('identity')
+                    and binding.get('repo') == state['repo']
+                    and binding.get('ticket') == ticket['ticket']
+                    and binding.get('branch') == payload.get('expected_branch')
+                    and binding.get('branch')
+                    and binding.get('conflicting_assignment') is False,
+                    'Existing workspace identity, repository, ticket or branch is unproven')
+        else:
+            require(placement.get('mode') == 'new-top-level'
+                    and isinstance(placement.get('repo_selector'), str)
+                    and placement['repo_selector'].startswith(('id:', 'path:')),
+                    'New workspace requires exact repository selector')
+    if operation == 'reference-add':
+        require(ticket.get('workspace') and isinstance(payload.get('urls'), list)
+                and payload['urls'] and all(isinstance(url, str) and url.startswith('https://')
+                                           for url in payload['urls']), 'Reference requires workspace and URLs')
+    state['intent'] = {**payload, 'queue_id': state['queue_id'],
+                       'run_id': state['run_id'], 'task_id': ticket.get('task_id'),
+                       'base_sha': state['base_sha']}
+    event(state, ticket['ticket'], 'intent', operation, intent=state['intent'])
+
+
+def record_receipt(state, payload):
+    ticket = assigned(state)
+    intent = state['intent']
+    require(intent['operation'] not in {'selection', 'recorded'}
+            and payload.get('request_id') == intent['request_id'], 'Receipt intent mismatch')
+    require(isinstance(payload.get('receipt'), dict) and payload['receipt'], 'Full receipt required')
+    state['receipt'] = payload['receipt']
+    state['evidence'].append({**payload, 'kind': 'receipt', 'intent': intent})
+    identity = payload.get('identity', {})
+    require(isinstance(identity, dict) and set(identity) <= {
+        'run_id', 'task_id', 'dispatch_id', 'workspace', 'branch', 'repo', 'ticket',
+        'terminal', 'terminal_id'}, 'Invalid receipt identity')
+    operation = intent['operation']
+    keys = {'run-create': ('run_id',), 'task-create': ('task_id',),
+            'worker-start': ('dispatch_id', 'workspace', 'branch'), 'reference-add': ()}[operation]
+    if payload.get('verified') is not True or not all(
+            isinstance(identity.get(key), str) and identity[key] for key in keys):
+        pause(state, 'Uncertain external result; inspect receipt recovery and exact identities')
+        return
+    if operation == 'run-create':
+        state['run_id'] = identity['run_id']
+    elif operation == 'task-create':
+        ticket['task_id'] = identity['task_id']
+    elif operation == 'worker-start':
+        # New branches come from the receipt; existing branches must match the binding.
+        placement = intent['placement']
+        if identity.get('repo') != state['repo'] or identity.get('ticket') != ticket['ticket'] or (
+                intent.get('expected_branch') and identity['branch'] != intent['expected_branch']) or (
+                placement['mode'] == 'existing' and identity['workspace'] != placement['binding']['identity']):
+            pause(state, 'Returned workspace or branch conflicts with launch intent')
+            return
+        ticket.update({key: value for key, value in identity.items()
+                       if key in {'dispatch_id', 'workspace', 'branch', 'repo', 'terminal', 'terminal_id'}})
+        ticket['status'] = state['status'] = 'active'
+    state['intent'] = {**intent, 'operation': 'recorded', 'completed_operation': operation}
+    event(state, ticket['ticket'], 'receipt', operation, identity=identity)
+
+
+def wake(state, payload):
+    assigned(state)
+    require(isinstance(payload.get('receipt'), dict) and isinstance(payload.get('messages'), list)
+            and all(isinstance(message, dict) for message in payload['messages']),
+            'Wake requires full check receipt and messages')
+    state['evidence'].append({**payload, 'kind': 'wake'})
+    if any(message.get('type') in {'question', 'escalation', 'permission'}
+           for message in payload['messages']):
+        pause(state, 'Worker needs coordinator or user attention')
+
+
+def completion(state, payload):
+    ticket = assigned(state)
+    require(ticket.get('dispatch_id') and payload.get('dispatch_id') == ticket['dispatch_id'],
+            'Completion assignment mismatch')
+    done, pr, verified, ci = (payload.get(key, {}) for key in
+                              ('worker_done', 'pr', 'verified_pr', 'ci'))
+    require(all(isinstance(value, dict) for value in (done, pr, verified, ci)),
+            'Invalid completion evidence')
+    checks, expected = ci.get('checks', []), ci.get('expected', [])
+    require(isinstance(checks, list) and all(isinstance(check, dict) for check in checks),
+            'Invalid provider checks')
+    state['evidence'].append({**payload, 'kind': 'completion'})
+    commit = ci.get('commit')
+    settled = any(message.get('type') == 'worker_done'
+                  and message.get('dispatch_id') == ticket['dispatch_id']
+                  and message.get('outcome') == 'succeeded' and message.get('settled') is True
+                  for evidence in state['evidence'] if evidence.get('kind') == 'wake'
+                  for message in evidence['messages'])
+    valid = (settled and state['intent']['operation'] == 'recorded'
+             and done.get('outcome') == 'succeeded' and done.get('settled') is True
+             and payload.get('workflow_complete') is True
+             and isinstance(pr.get('url'), str) and pr['url'].startswith('https://')
+             and pr.get('repo') and pr.get('repo') == verified.get('repo')
+             and pr.get('branch') == verified.get('branch') == ticket['branch']
+             and isinstance(pr.get('head'), str) and SHA.fullmatch(pr['head'])
+             and pr['head'] == verified.get('head')
+             and (commit == pr['head'] or (commit == verified.get('test_merge_commit')
+                  and verified.get('test_merge_head') == pr['head']))
+             and isinstance(expected, list) and expected
+             and all(isinstance(name, str) and name for name in expected)
+             and len(expected) == len(set(expected))
+             and isinstance(checks, list)
+             and all(any(check.get('identity') == name and check.get('commit') == commit
+                         and check.get('conclusion') == 'success' for check in checks)
+                     for name in expected)
+             and all(check.get('commit') == commit and check.get('conclusion') == 'success'
+                     for check in checks))
+    if not valid:
+        pause(state, 'Missing, stale, failed or inaccessible worker/PR/workflow/CI evidence')
+        return
+    ticket['status'] = 'succeeded'
+    state['status'] = 'succeeded' if all(t['status'] == 'succeeded' for t in state['tickets']) else 'pending'
+    state['intent'] = None
+    event(state, ticket['ticket'], 'succeeded', 'Settled worker and matching PR/workflow/CI evidence')
+
+
 def main():
     args = sys.argv[1:]
-    require(len(args) >= 2 and args[0] in {'init', 'status', 'select', 'transition'},
-            'Usage: init|status|select|transition <queue-id> ...')
+    operations = {'transition': transition, 'intent': launch_intent, 'receipt': record_receipt,
+                  'wake': wake, 'evidence': completion}
+    require(len(args) >= 2 and args[0] in {'init', 'status', 'select'} | operations.keys(),
+            'Usage: init|status|select|transition|intent|receipt|wake|evidence <queue-id> ...')
     command, queue, *rest = args
     require(ID.fullmatch(queue), 'Invalid queue ID')
     home = os.environ.get('N1_HOME')
@@ -210,12 +373,13 @@ def main():
         if command == 'status':
             require(not rest, 'status takes only a queue ID')
             return state
-        if command == 'transition':
-            require(len(rest) == 2 and rest[0].isdigit(), 'transition requires revision and JSON file')
+        if command in operations:
+            require(len(rest) == 2 and rest[0].isdigit(), 'Operation requires revision and JSON file')
             require(state['revision'] == int(rest[0]), 'Revision conflict')
             with open(rest[1]) as source:
                 payload = json.load(source)
-            transition(state, payload)
+            require(isinstance(payload, dict), 'Operation requires a JSON object')
+            operations[command](state, payload)
             state['revision'] += 1
             result = state
         else:
