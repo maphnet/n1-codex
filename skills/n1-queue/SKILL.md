@@ -1,56 +1,24 @@
 ---
 name: n1-queue
-description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children never merge unless queue.mergeOnFinish is set. Usage: n1-codex:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
-argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
+description: "Use when the user names an ordered list of tracker tickets for a supervised queue, or requests status, stop, or resume of a persisted queue."
+argument-hint: "<ticket-id>... | --status <queue-id> | --stop <queue-id> | --resume <queue-id>"
 ---
 
 # N1 Queue
 
-**Codex milestone 1: unsupported.** Before sourcing the preamble, parsing arguments, calling trackers, creating directories, writing plans, or launching any runner, report: "n1-queue is unsupported in N1 Codex milestone 1. Use n1-codex:n1-start for one ticket at a time, or use the original N1 plugin for queues." **STOP.** This applies to every mode, including status, watch, answer, plan, run, and dry-run. The legacy procedures below are retained as reference only.
+Process exactly the explicit ordered ticket list with at most one unsettled Codex worker. Each ticket runs N1 through PR and CI. Neither worker nor coordinator may merge; no Stop hook is assumed.
 
-**Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
+| Interface | Action |
+| --- | --- |
+| `n1-queue <ticket-id>...` | Start exactly this ticket list |
+| `n1-queue --status <queue-id>` | Read persisted status only |
+| `n1-queue --stop <queue-id>` | Prevent launches and request guarded cancellation |
+| `n1-queue --resume <queue-id>` | Reconcile original assignment before continuing |
 
-Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI and merges only when `queue.mergeOnFinish` is `true` (default `false`, independent of `finishWork.mergeOnFinish`). A PreToolUse hook enforces this, and the preview states the effective merge mode before Start. The orchestrating session merges a child's PR only to unblock held tickets when the run is stalled and a strict gate holds, and self-answers non-critical escalations when `queue.autoResolveNonCritical` is `true` (run.md § Session watch). The skill plans (intake, preview, plan-time decisions) and persists the plan to `queue.md`; the runner (`scripts/n1-queue-run.sh`) handles execution. Bare `n1-queue` plans then runs (one Start prompt between); `--plan` saves the plan and stops; `--run <queue-id>` executes a saved plan; `--dry-run` prints the plan and persists nothing.
+Reject empty input, mixed modes, unknown options, duplicates and malformed IDs before state creation or service calls. All ticket/queue IDs must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`. Never discover additional tickets, expand stories, reorder the list or infer the latest queue.
 
-**Announce at start:** "I'm using the n1-queue skill to process queue <QUEUE_ID>."
+Source `~/.n1-codex/preamble.sh`, then `"$N1_ROOT/lib/queue.sh"`. Stop if N1_HOME is unresolved. Preserve native permissions and explicit Codex model overrides; never fall back to Claude.
 
-## Preamble
+Lifecycle commands follow [report.md](steps/report.md) only. New queues follow [intake.md](steps/intake.md), [preview.md](steps/preview.md), then [run.md](steps/run.md). Orca wakes follow run.md for the persisted Run.
 
-```bash
-source ~/.n1-codex/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-```
-
-If `N1_HOME` is empty: "N1 is not configured for this project. Run `n1-codex:n1-init` to set it up." **STOP.**
-
-## Input
-
-Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tracker URLs via `n1_extract_ticket_from_url`), `--plan` (plan and save, do not launch), `--run <queue-id>` (execute a saved plan), `--dry-run` (wins over `--plan`), `--status [<id>]`, `--watch [<id>]` (status, then relay this run's events in this session), --answer <ticket> <text> (relay an answer to a waiting queue child).
-
-`QUEUE_ID` = the `--run` argument, else the tag (tag mode) or the story ID (story mode). Default tag: `n1_queue_val tag` (i.e. `n1-auto`). A `--run` id must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`; otherwise print "Invalid queue id: <id>." **STOP.** `QUEUE_DIR="$N1_HOME/queue/$QUEUE_ID"`; `mkdir -p "$QUEUE_DIR"` except under `--run` (a saved plan's dir already exists).
-
-## Tracker gate
-
-```bash
-source ~/.n1-codex/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-TRACKER_MCP=$(n1_config_val '.tracker.mcp'); TRACKER_TYPE=$(n1_config_val '.tracker.type')
-SEARCH_OP=$(n1_config_val '.tracker.operations.search'); READ_OP=$(n1_config_val '.tracker.operations.readTicket')
-COMMENT_OP=$(n1_config_val '.tracker.operations.addComment'); GET_COMMENTS_OP=$(n1_config_val '.tracker.operations.getComments')
-LINKS_OP=$(n1_config_val '.tracker.operations.getIssueLinks')
-PREFIX=$(n1_config_val '.tracker.prefix'); PROJECT_KEY=$(n1_config_val '.tracker.projectKey')
-TODO_STATUS=$(n1_config_val '.tracker.statuses.todo'); CLOUD_ID=$(n1_config_val '.tracker.cloudId')
-```
-If `TRACKER_MCP` is empty: "No tracker configured. Run `n1-codex:n1-init`." **STOP.**
-
-## Steps
-
-1. **Status check.** If `--answer`: read and follow only § Answer in `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.** If `--status` or `--watch`: read and follow `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.**
-2. **Saved plan.** If `--run <queue-id>`: read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` in full (the busy guard at the top always runs first; the saved-plan flow itself begins at § Saved plan). Skip steps 3-5.
-3. **INTAKE** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/intake.md`. Produces the candidate list.
-4. **PREVIEW** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/preview.md`. `--dry-run` stops there; otherwise Plan-Resolve records plan-time decisions and the user confirms or cancels.
-5. **RUN** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` in full (the busy guard at the top always runs first; this path's flow begins at § Write plan). Writes queue.md (`step: planned`); `--plan` stops there; bare launches the runner and ends the turn.
-
-## Error Recovery
-
-Transient tracker failures: retry twice with brief backoff. Anything else: report and **STOP**.
+Never start a daemon, poll mailboxes, steer terminals, modify the base, merge to unblock, abandon uncertainty or infer exit from timeout. Pause with the unresolved evidence.
