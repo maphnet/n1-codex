@@ -24,6 +24,9 @@ class Queue(unittest.TestCase):
         self.sha = self.git('rev-parse', 'HEAD')
         self.git('clone', '-q', '--bare', str(self.repo), str(self.root / 'remote'))
         self.git('remote', 'add', 'origin', str(self.root / 'remote'))
+        self.git('config', 'remote.origin.url', 'https://example.test/owner/repo.git')
+        self.git('config', 'url.' + str(self.root / 'remote') + '.insteadOf',
+                 'https://example.test/owner/repo.git')
 
     def git(self, *args, cwd=None):
         return subprocess.check_output(['git', *args], cwd=cwd or self.repo,
@@ -206,6 +209,31 @@ class Queue(unittest.TestCase):
             state = self.operation('evidence', data)
             self.assertEqual(state['status'], 'paused', problem)
             self.assertIsNone(self.call('select', 'queue-1')['selected'])
+
+    def test_foreign_repository_cannot_complete(self):
+        self.launch()
+        self.settled_wake()
+        data = self.completion()
+        data['pr']['repo'] = data['verified_pr']['repo'] = 'other/repo'
+        data['pr']['url'] = 'https://example.test/other/repo/pull/1'
+        self.assertEqual(self.operation('evidence', data)['status'], 'paused')
+
+    def test_settled_assignment_resumes_evidence_without_redispatch(self):
+        self.launch()
+        self.settled_wake()
+        data = self.completion()
+        data['ci']['checks'] = []
+        self.assertEqual(self.operation('evidence', data)['status'], 'paused')
+        assignment = {'dispatch_id': 'dispatch-1', 'workspace': 'workspace-1',
+                      'repo': str(self.repo), 'branch': 'actual-branch', 'ticket': 'NC-1',
+                      'active': False, 'settled': True}
+        state = self.operation('resume', {'reason': 'retry evidence', 'run_id': 'run-1',
+            'receipt': {'native': 'inspect'}, 'verified': True, 'assignment': assignment})
+        self.assertEqual(state['status'], 'active')
+        self.assertIsNone(self.call('select', 'queue-1')['selected'])
+        self.operation('intent', {'operation': 'worker-start', 'ticket': 'NC-1',
+                                  'request_id': 'retry'}, ok=False)
+        self.assertEqual(self.operation('evidence', self.completion())['status'], 'succeeded')
 
     def test_applicable_test_merge_commit_is_accepted_only_for_matching_head(self):
         self.launch()

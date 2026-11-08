@@ -343,7 +343,11 @@ def resume(state, payload):
         elif ticket.get('dispatch_id'):
             identity = payload.get('assignment', {})
             require(isinstance(identity, dict), 'Invalid reconciled assignment')
-            if identity.get('active') is not True or not all(
+            settled = identity.get('active') is False and identity.get('settled') is True and any(
+                message.get('type') == 'worker_done' and message.get('dispatch_id') == ticket['dispatch_id']
+                and message.get('settled') is True for evidence in state['evidence']
+                if evidence.get('kind') == 'wake' for message in evidence['messages'])
+            if not (identity.get('active') is True or settled) or not all(
                     identity.get(key) == ticket.get(key) for key in
                     ('dispatch_id', 'workspace', 'repo', 'branch', 'ticket')):
                 pause(state, 'Original assignment liveness or identity remains uncertain')
