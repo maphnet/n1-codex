@@ -14,10 +14,10 @@ hooks, and detailed Codex token accounting are deferred.
 Codex CLI 0.155.1 or later, Bash, Git, `gh`, `jq`, and Python 3.11+.
 Tracker MCP connections are optional and use the existing N1 project configuration.
 
-After the Codex branch is published:
+From the published repository:
 
 ```bash
-codex plugin marketplace add maphnet/n1-codex --ref feat/codex-native
+codex plugin marketplace add maphnet/n1-codex --ref main
 codex plugin add n1-codex@n1-codex
 ```
 
