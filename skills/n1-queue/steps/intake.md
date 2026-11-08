@@ -1,97 +1,20 @@
 # Intake
 
-Builds the candidate list for the queue. Two modes: tag (search tracker) or story (subtasks of a parent).
+Use only the explicit validated sequence. Establish the canonical repository via `git rev-parse --show-toplevel`, configured target base and tracker readTicket/getIssueLinks operations via `n1_config_val`. Ambiguous repository/base/placement or unavailable tracker access must be reported before launch.
 
-**Key validation.** Before any step below uses a candidate's `<KEY>` in a path (`$N1_HOME/memory/<KEY>/`, later `<QUEUE_DIR>/desc/<KEY>.txt`) or as `SELF_ID`, check it against `^[A-Z][A-Z0-9_]*-[0-9]+$` (SEC-L4). A key that doesn't match — a malformed tracker response, never a real ticket ID — is excluded with reason `invalid ticket key`; skip its `READ_OP` call and every later step for it.
+Read every named ticket and inbound blockers. Preserve every ticket, order, known blockers and lookup failure. Missing links operations or ambiguous/inaccessible evidence means unknown blockers for that ticket, never an empty verified list.
 
-## Tag mode
+Choose and report a fresh safe queue ID. Initialize once:
+`n1_queue_state init <queue-id> <canonical-repo> <base-ref> <ticket-id>...`.
+Never reset or overwrite a queue. State lives at `$N1_HOME/queue/<queue-id>/state.json`; access it through bounded helpers, never direct edits.
 
-Search via `mcp__<TRACKER_MCP>__<SEARCH_OP>`:
-- **YouTrack:** query `project: {PREFIX} tag: {<tag>} State: {<TODO_STATUS>}`, max results `n1_queue_val maxTickets`.
-- **Jira:** JQL `project = <PROJECT_KEY> AND labels = "<tag>" AND status = "<TODO_STATUS>"`, maxResults `n1_queue_val maxTickets`. Include `cloudId` when set.
+Before every selection, including after resume, refresh every pending/blocked ticket's tracker proof. Fetch the target base without checkout or base mutation, pin its SHA, independently establish each blocker's verified merged commit, and verify ancestry with `git merge-base --is-ancestor <merged-sha> <base-sha>`. A completed PR or done tracker status alone is insufficient. Write JSON using file tools, never shell interpolation of tracker text, then persist:
+`n1_queue_state transition <queue-id> <expected-revision> <json-file>`.
 
-**Already-run check.** Before reading each result, check whether a previous queue run already handled it and its tag release was not confirmed (a stale tag). A ticket whose tag was released and later re-added by a human passes this check (explicit re-queue):
-```bash
-source ~/.n1-codex/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-if RUN=$(n1_queue_already_run "$N1_HOME/memory/<KEY>/overview.md"); then echo "EXCLUDE run:$RUN"; else echo KEEP; fi
-```
-`EXCLUDE` -> excluded with reason `already run: <run> (tag not released; n1-codex:n1-queue --status releases it)`; skip its `READ_OP` call.
-
-For each remaining result, call `mcp__<TRACKER_MCP>__<READ_OP>` to get `key`, `title`, `description`, `status`, `size` (estimation field if available).
-
-Repo and N1 Home for all candidates: current repo root (`git rev-parse --show-toplevel`) and `$N1_HOME`.
-
-## Story mode
-
-Call `mcp__<TRACKER_MCP>__<READ_OP>` for the story ID. Record `STORY_TITLE`.
-
-Enumerate subtasks (same logic as tag mode but via parent link):
-- **Jira:** call `mcp__<TRACKER_MCP>__<SEARCH_OP>` with JQL `parent = <STORY_ID> ORDER BY created ASC`. Include `cloudId`.
-- **YouTrack:** call `mcp__<TRACKER_MCP>__<LINKS_OP>` for the story ID; keep links of type `subtask` where the story is the parent; targets are the subtasks. Call `READ_OP` on each.
-
-Status classification: a status whose lowercase name is one of `done`, `closed`, `resolved`, `fixed`, `verified` -> `done-before-run`. Everything else -> candidate.
-
-For each candidate in story mode:
-```bash
-source ~/.n1-codex/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-SERVICE=$(n1_story_parse_service "$TITLE")
-if [ -n "$SERVICE" ]; then
-  if HIT=$(n1_story_find_repo "$SERVICE"); then CFG_PATH=${HIT%%$'\t'*}; REPO=${HIT#*$'\t'}; N1_HOME_SUB=$(dirname "$CFG_PATH"); else CFG_PATH=""; REPO=""; fi
-else
-  MY_SERVICE=$(n1_config_val '.ticketTagging.service')
-  if [ -z "$MY_SERVICE" ]; then CFG_PATH="$N1_HOME/config.json"; N1_HOME_SUB="$N1_HOME"; REPO=$(n1_config_val '.repoPath'); [ -z "$REPO" ] && REPO=$(git rev-parse --show-toplevel); else CFG_PATH=""; REPO=""; fi
-fi
-```
-- No matching config -> ask the user: **Enter path**, **Skip** (Status `skip`, reason "no repo"), **Cancel**.
-- Matched config but empty `REPO` -> ask for path, validate, backfill.
-
-## Story check (tag mode only)
-
-A tagged story is never expanded into the queue; the user runs it explicitly in story mode. Exclusion reason: `story: run with --story <ID>`.
-- **Jira:** subtasks are not issue links. If the candidate's type (from `READ_OP`) is `Story` or `Epic`, search JQL `parent = <KEY> AND statusCategory != Done`, maxResults 1. Any hit -> exclude.
-- **YouTrack:** call `mcp__<TRACKER_MCP>__<LINKS_OP>` (skip when `LINKS_OP` is empty). If the candidate is the parent of any `subtask` link whose target is not done -> exclude.
-
-## Blocker check
-
-For each candidate call `mcp__<TRACKER_MCP>__<LINKS_OP>` (when `LINKS_OP` is empty, i.e. config predates the `getIssueLinks` operation, skip link checks and rely on the description grep; say so in the preview). A candidate whose inbound dependency (`depends on`, `is blocked by`) points at ANY ticket that is not done -> excluded with reason `blocked by <ID>`, except the same-plan case (N1-64). If the only not-done blocker is itself a candidate of this plan, keep the candidate and prefix its Reason with `blocked_on <ID> · `. run.md § Write plan gives it Status `held`, and the runner launches it only after the orchestrating session merges the blocker. Two candidates that block each other (a cycle) are both excluded with reason `blocked by <ID> (cycle)`.
-
-Additionally grep the description: a line matching `(after|depends|blocked|requires|needs).*<PREFIX>-[0-9]+` (case-insensitive) naming a ticket that is not done -> excluded with reason `blocked by <ID>`. The same-plan `held` exception above applies only to the tracker-link check; a description-grep blocker is always excluded outright, even when the named ticket is itself a candidate of this plan.
-
-Excluded tickets are left for a later run (no toposort). Before § Output, a held candidate whose blocker was excluded by any later check is excluded too, with reason `blocked by <ID>`.
-
-## Description quality
-
-For each remaining candidate, grade the description with the product-analyst tiers (`<N1_ROOT>/agents/product-analyst.md` § Description Quality Assessment, table C): Empty, Skeletal, Weak, Adequate. A description that already carries `*Briefed by N1 (queue plan)*`, `*Structured by N1*` or `*Restructured by N1*` counts as Adequate here, so it is never briefed twice. Keep the tier with the candidate for preview.md § Plan-Resolve 1. Length alone never excludes.
-
-Exclude only a candidate with nothing to work from: an Empty description and a vague title. For each Empty candidate, write its title to `<QUEUE_DIR>/desc/<KEY>.title` with the file-write mechanism (never through a shell string, NP-203 SEC-1), then:
-
-```bash
-source ~/.n1-codex/preamble.sh
-n1_title_vague "<QUEUE_DIR>/desc/<KEY>.title" && echo VAGUE || echo OK
+```json
+{"ticket":"NC-101","reason":"tracker and Git verification","blocker_snapshot":{"base_sha":"<current-base-sha>","lookup":"verified","blockers":[{"ticket":"NC-100","merged_sha":"<merged-sha>","verified":true}]}}
 ```
 
-`VAGUE`: exclude with reason `no usable content: empty description, vague title`. `OK`: keep; preview briefs it.
+Use lookup unknown for missing evidence and retain known blockers. Revision conflicts require rereading/recomputing, never blind replay.
 
-## Duplicate check
-
-For each remaining candidate, follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue`, `TEXT` = candidate title + description, `SELF_ID=<KEY>`, and `OVERVIEW` empty. This pass only informs. Matches annotate the candidate's Reason (e.g. `tag match · possible duplicate: <ID>`), and nothing is excluded, prompted, or linked here. Keep each flagged candidate's `MATCHES` rows and the Gate's `LINK_OP`: the preview resolves them interactively (`CONTEXT=queue-plan`), and queue children skip the check entirely. The blocker check above is independent and unchanged.
-
-## Model per ticket
-
-```bash
-source ~/.n1-codex/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-MODEL=$(n1_story_pick_model "$SIZE")
-```
-
-If no size field, default to `sonnet`.
-
-## Output
-
-Build two lists:
-- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration)
-- **Excluded**: `Ticket`, `Reason` (already run, blocked, story, no usable content, skip, done-before-run)
-
-If no candidates: "No actionable tickets found." **STOP.**
+`select <queue-id>` independently fetches/revalidates the base, checks ancestors, and atomically reserves the first eligible ticket. A blocked first ticket does not stall independent later tickets. Preserve blocked rows and recheck them later; never merge to unblock. A base race rejects reservation and requires refreshed proofs. Any active, paused or uncertain assignment prevents selection.

@@ -47,6 +47,20 @@ def make_run(run_id="n1-run-1", version="2.80.0", project="proj", ticket="T-1",
     }
 
 
+class CodexRunLoadingTests(unittest.TestCase):
+    def test_codex_and_historical_runs_are_loaded_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            historical = root / 'project/memory/T-1/telemetry/runs/old.jsonl'
+            codex = root / 'project/codex/telemetry/T-1/runs/new.jsonl'
+            write_jsonl(historical, [make_run('shared'), make_run('historical')])
+            write_jsonl(codex, [make_run('shared'), make_run('codex')])
+            runs, malformed = bm.load_runs(root)
+            self.assertEqual(malformed, 0)
+            self.assertEqual({r['run_id'] for r in runs}, {'shared', 'historical', 'codex'})
+            self.assertEqual(len(runs), 3)
+
+
 class TempDirs:
     def __init__(self):
         self.tmp = Path(tempfile.mkdtemp())

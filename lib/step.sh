@@ -52,7 +52,7 @@ n1_step_begin() {
     local step_name="$1" step_number="$2"
     [ -n "${N1_RUN_ID:-}" ] || return 0   # no-op if run context absent
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID:-}" \
-        "$step_name" "$step_number" "${N1_HOME}/memory/${ID}/telemetry" \
+        "$step_name" "$step_number" "$(n1_telemetry_dir "$ID")" \
         started_at=now
 }
 
@@ -96,6 +96,6 @@ n1_step_end() {
     local telem_args=(completed_at=now "outcome=$outcome")
     [ -n "$metadata_json" ] && telem_args+=("metadata=$metadata_json")
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID:-}" \
-        "$step_name" "$step_number" "${N1_HOME}/memory/${ID}/telemetry" \
+        "$step_name" "$step_number" "$(n1_telemetry_dir "$ID")" \
         "${telem_args[@]}"
 }

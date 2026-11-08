@@ -7,17 +7,18 @@ Update overview.md: all checkboxes checked; `step: done`; add `docs_updated` fie
 **Telemetry (if enabled):**
 ```bash
 source ~/.n1-codex/preamble.sh
+source "$N1_ROOT/lib/telemetry.sh"
 RESOLVED_TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
-echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$FINAL_OUTCOME"'","estimated_tier":"'"$ESTIMATED_TIER"'","type":"'"$RESOLVED_TYPE"'"}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
+echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$FINAL_OUTCOME"'","estimated_tier":"'"$ESTIMATED_TIER"'","type":"'"$RESOLVED_TYPE"'"}' >> "$(n1_telemetry_dir "$ID")/raw/steps/$N1_RUN_ID.jsonl"
 ```
 `$FINAL_OUTCOME`: `pr_created`/`pr_skipped`/`escalated`/`failed`. `$ESTIMATED_TIER`: estimation tier or empty.
 
 ```bash
 source ~/.n1-codex/preamble.sh
-bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "${N1_HOME}/memory/$ID/telemetry" 2>&1 || echo "⚠ Telemetry merge failed" >&2
-MERGED="${N1_HOME}/memory/$ID/telemetry/runs/$N1_RUN_ID.jsonl"
 source "$N1_ROOT/lib/telemetry.sh"
-[ -s "$MERGED" ] && n1_remove_run_lock "${N1_HOME}/memory/$ID/telemetry" "$N1_RUN_ID"
+bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "$(n1_telemetry_dir "$ID")" 2>&1 || echo "⚠ Telemetry merge failed" >&2
+MERGED="$(n1_telemetry_dir "$ID")/runs/$N1_RUN_ID.jsonl"
+[ -s "$MERGED" ] && n1_remove_run_lock "$(n1_telemetry_dir "$ID")" "$N1_RUN_ID"
 ```
 
 Clear active-run:

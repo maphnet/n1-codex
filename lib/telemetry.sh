@@ -4,11 +4,19 @@
 _N1_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_N1_LIB_DIR}/config.sh"
 
+n1_telemetry_dir() {
+    if [ "$(n1_host)" = codex ]; then
+        printf '%s/codex/telemetry/%s' "$N1_HOME" "$1"
+    else
+        printf '%s/memory/%s/telemetry' "$N1_HOME" "$1"
+    fi
+}
+
 # Capture immutable routing identity before any pipeline work. The compatibility
 # lock is only a pointer; hooks select the per-run lock by session identity.
 n1_run_begin() {
     local ticket="$1" tdir host session facts transcript
-    tdir="${N1_HOME}/memory/$ticket/telemetry"
+    tdir=$(n1_telemetry_dir "$ticket")
     host=$(n1_host); session=$(n1_session_id)
     facts=$(n1_session_file 2>/dev/null || true)
     transcript="${N1_TRANSCRIPT_PATH:-}"
@@ -75,7 +83,13 @@ n1_read_lock() {
     session=$(n1_session_id); host=$(n1_host)
     # Identity-less hooks must not guess another session's most recent run.
     [ -n "$session" ] || [ -n "${N1_RUN_ID:-}" ] || return 1
-    for candidate in "${memory_dir}"/*/telemetry/locks/*.json "${memory_dir}"/*/telemetry/telemetry.lock; do
+    local candidates=()
+    if [ "$host" = codex ]; then
+        candidates=("${memory_dir%/memory}"/codex/telemetry/*/locks/*.json "${memory_dir%/memory}"/codex/telemetry/*/telemetry.lock)
+    else
+        candidates=("${memory_dir}"/*/telemetry/locks/*.json "${memory_dir}"/*/telemetry/telemetry.lock)
+    fi
+    for candidate in "${candidates[@]}"; do
         [ -f "$candidate" ] || continue
         owner=$(n1_hook_field session_id < "$candidate")
         run=$(n1_hook_field run_id < "$candidate")
@@ -105,7 +119,8 @@ n1_read_lock() {
     N1_LOCK_FILE="$lock_file"
     N1_LOCK_TELEM_DIR=$(dirname "$lock_file")
     [ "$(basename "$N1_LOCK_TELEM_DIR")" != locks ] || N1_LOCK_TELEM_DIR=$(dirname "$N1_LOCK_TELEM_DIR")
-    N1_LOCK_TICKET_ID=$(basename "$(dirname "$N1_LOCK_TELEM_DIR")")
+    N1_LOCK_TICKET_ID=$(n1_hook_field ticket_id < "$lock_file")
+    [ -n "$N1_LOCK_TICKET_ID" ] || return 1
 }
 
 # n1_run_has_pending_agent <agents_file>
@@ -203,7 +218,7 @@ n1_record_decision() {
     local id="$1" result="$2" cond="${3:-}"
     shift 2; [ $# -gt 0 ] && shift
     [ -n "${N1_HOME:-}" ] && [ -n "${ID:-}" ] || return 0
-    local tdir="${N1_HOME}/memory/${ID}/telemetry"
+    local tdir; tdir=$(n1_telemetry_dir "$ID")
     n1_read_lock "${N1_HOME}/memory" || return 0
     [ "$N1_LOCK_TICKET_ID" = "$ID" ] || return 0
     command -v jq >/dev/null 2>&1 || return 0

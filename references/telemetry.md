@@ -17,7 +17,7 @@ Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.
 | `hooks/telemetry-agent-stop.sh` | SubagentStop hook — log agent stop event + transcript path |
 | `hooks/telemetry-merge.sh` | Post-run merge — pair events, parse transcripts, produce unified JSONL record |
 
-**Data layout** (in `$N1_HOME/memory/<ID>/telemetry/`):
+**Data layout** (in `$N1_HOME/codex/telemetry/<ID>/` for Codex; Claude retains `$N1_HOME/memory/<ID>/telemetry/`):
 - `locks/<run_id>.json` — run identity: host, session ID, transcript path, run ID, version, and ticket ID
 - `telemetry.lock` — compatibility pointer to the latest run; never authoritative for cross-session routing
 - `raw/steps/<run_id>.jsonl` — orchestrator step events
@@ -28,7 +28,7 @@ Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.
 
 **Lock discovery:** Hooks match the payload session ID and explicit manifest host to a run lock. Missing identity never selects another session's latest run. `n1_run_begin` captures the opening envelope; merging uses that host even when invoked later by another harness. Session-start facts live under `~/.n1/sessions/<session_id>.json`; shared `host.json` is only plugin discovery.
 
-**ID reconciliation:** Telemetry directories live inside `$N1_HOME/memory/<ID>/`, so the existing Reconcile Memory ID & Branch procedure moves them automatically when a provisional ID is replaced with a tracker ticket ID.
+**ID reconciliation:** Claude telemetry lives inside ticket memory and moves with it when a provisional ID is replaced. Codex telemetry lives separately from canonical ticket memory.
 
 Hooks filter N1 persona names. Completion merges synchronously; both `Stop` handlers and explicit pipeline finalization use the same merger. Python 3 is required; failure retains the run lock for retry.
 

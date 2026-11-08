@@ -13,7 +13,7 @@ before=$(sha256sum "$HOME/.n1/project/config.json" "$HOME/.n1/preamble.sh" "$HOM
 git -C "$TMP/project" init -q
 git -C "$TMP/project" remote add origin https://example.test/project.git
 cd "$TMP/project"
-unset N1_HOME N1_STATE_DIR N1_HOST_FILE N1_PLUGIN_ROOT CODEX_PLUGIN_ROOT
+unset N1_HOME N1_STATE_DIR N1_HOST_FILE N1_PLUGIN_ROOT CODEX_PLUGIN_ROOT N1_SESSION_ID
 export CLAUDE_PLUGIN_ROOT=/stale PLUGIN_ROOT=/stale N1_ROOT=/stale CODEX_THREAD_ID=thread
 source "$ROOT/lib/preamble.sh"
 [ "$N1_ROOT" = "$ROOT" ]

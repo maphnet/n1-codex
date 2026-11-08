@@ -21,7 +21,8 @@ Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
 **If mode is `"smoke"`:** Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped -- smoke tests deferred to n1-finish post-deploy". Emit telemetry:
 ```bash
 source ~/.n1-codex/preamble.sh
-n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"smoke_deferred","skip_reason":"smoke_mode"}'
+source "$N1_ROOT/lib/telemetry.sh"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "$(n1_telemetry_dir "$ID")" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"smoke_deferred","skip_reason":"smoke_mode"}'
 ```
 Skip to Step 10 (PR CREATION).
 
@@ -57,7 +58,8 @@ fi
   - Emit telemetry:
     ```bash
     source ~/.n1-codex/preamble.sh
-    n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 9 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"skipped","skip_reason":"qa_dedup"}'
+source "$N1_ROOT/lib/telemetry.sh"
+    n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 9 "$(n1_telemetry_dir "$ID")" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"skipped","skip_reason":"qa_dedup"}'
     ```
   - Skip to Step 10 (PR CREATION).
 - If `QA_DEDUP_SKIP=false`: mode is `live`, or at least one non-pytest Runner command exists — proceed to 9a. Capture the `QA_RUNNER_CMDS` value for injection into the planner prompt in 9a.
@@ -253,7 +255,8 @@ After the agent returns:
 - Emit step-end telemetry:
   ```bash
   source ~/.n1-codex/preamble.sh
-  n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$LOCAL_TESTING_METADATA"
+source "$N1_ROOT/lib/telemetry.sh"
+  n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "$(n1_telemetry_dir "$ID")" completed_at=now outcome=pass loop_iteration=null metadata="$LOCAL_TESTING_METADATA"
   ```
 - Proceed to Step 10 (PR CREATION)
 

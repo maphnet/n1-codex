@@ -41,7 +41,7 @@ export N1_SESSION_ID=thread-a
 unset N1_RUN_ID
 n1_read_lock "$N1_HOME/memory"
 test "$N1_LOCK_RUN_ID" = "$A"
-python3 - "$N1_HOME/memory/NP-A/telemetry/raw/steps/$A.jsonl" <<'PY'
+python3 - "$N1_HOME/codex/telemetry/NP-A/raw/steps/$A.jsonl" <<'PY'
 import json, sys
 row = json.loads(open(sys.argv[1]).readline())
 assert row['host'] == 'codex' and row['session_id'] == 'thread-a'

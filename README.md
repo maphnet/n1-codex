@@ -5,8 +5,9 @@ The workflow and per-ticket memory are retained; execution uses Codex skills,
 native agents, and hooks. This fork does not update or install the Claude plugin.
 
 **Milestone 1 is a draft:** automated helper and packaging checks are available;
-live pipeline validation is still required before production use. Unattended queue
-execution, generated deny hooks, and detailed Codex token accounting are deferred.
+live pipeline validation is still required before production use. Supervised
+sequential queues are supported; unattended background execution, generated deny
+hooks, and detailed Codex token accounting are deferred.
 
 ## Requirements and installation
 
@@ -55,6 +56,9 @@ Both forks intentionally use the same `N1_HOME`, `~/.n1/<project>/config.json`, 
 no automatic copying or migration. Do not run both hosts against the same active
 ticket concurrently: ticket files remain shared.
 
+Codex telemetry is isolated at `$N1_HOME/codex/telemetry/<ID>/`; Claude telemetry
+remains at `$N1_HOME/memory/<ID>/telemetry/`.
+
 Only Codex runtime bootstrap is separate: `~/.n1-codex/preamble.sh` and its session
 files. Claude's `~/.n1/preamble.sh`, installed cache, and `.claude/settings*.json`
 are not modified. Existing explicit worktree settings remain respected.
@@ -83,7 +87,13 @@ read-only reviewer behavior.
   retain the N1 workflow and memory layout.
 - PR/CI/finish skills retain their explicit workflow gates. The duplicate
   post-PR Codex review subprocess is disabled in this Codex fork.
-- Queue entry points stop before side effects; there is no Claude fallback.
+- `n1-queue <ticket-id>...` processes exactly the ordered ticket list through PR
+  and CI with at most one unsettled Orca Codex worker. `--status <queue-id>` reads
+  persisted state; `--stop <queue-id>` prevents further launches and requests
+  guarded cancellation; `--resume <queue-id>` reconciles the original assignment
+  before continuing. Blocked tickets remain queued while independent eligible
+  tickets may proceed; ambiguous receipts or missing PR/CI evidence pause work.
+  Queues never merge or modify the base; there is no Claude fallback.
 - Existing rule instructions remain readable. Claude-generated deny hooks are
   not changed or represented as enforced by Codex.
 - Step outcomes and timing remain useful. Missing Codex token accounting is

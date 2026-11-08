@@ -42,12 +42,10 @@ check "n1-story applies links after story creation" "duplicate-check\.md. § App
 
 check "n1-start intake references the procedure" "duplicate-check\.md" skills/n1-start/steps/ticket.md
 
-check "n1-queue intake references the procedure" "duplicate-check\.md" skills/n1-queue/steps/intake.md
-check "n1-queue intake keeps the annotate-only pass" "CONTEXT=queue\`" skills/n1-queue/steps/intake.md
-
-check "n1-queue intake hands matches to plan-time resolution" "CONTEXT=queue-plan" skills/n1-queue/steps/intake.md
-check "n1-queue blocker check still present" "^## Blocker check" skills/n1-queue/steps/intake.md
-check "n1-queue blocker check still excludes blocked candidates" "excluded with reason .blocked by <ID>." skills/n1-queue/steps/intake.md
+check "n1-queue reads explicit tickets and inbound blockers" "Read every named ticket and inbound blockers" skills/n1-queue/steps/intake.md
+check "n1-queue preserves tickets and lookup failures" "Preserve every ticket, order, known blockers and lookup failure" skills/n1-queue/steps/intake.md
+check "n1-queue requires merged blocker ancestry" "git merge-base --is-ancestor" skills/n1-queue/steps/intake.md
+check "n1-queue retains blocked tickets for recheck" "Preserve blocked rows and recheck them later" skills/n1-queue/steps/intake.md
 
 check "NP-239: n1-finish resolves link op from linkIssues" "tracker\.operations\.linkIssues" skills/n1-finish/steps/05-telemetry-followup.md
 check "NP-239: n1-finish maps Relates to the relates to YouTrack command" "Map \`Relates\` .+ \`relates to\`" skills/n1-finish/steps/05-telemetry-followup.md

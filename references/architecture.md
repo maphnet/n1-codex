@@ -1,5 +1,7 @@
 # N1 Architecture Reference
 
+This reference retains legacy Claude workflow details. For Codex queue and telemetry behavior, see [Codex routing](codex-routing.md); the legacy background queue described below is not the Codex queue.
+
 ## Orchestration Pattern
 
 Skills are lightweight controllers that delegate all heavy work:
@@ -17,7 +19,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
 | n1-ticket | solution-architect agent + inline context capture, web research, tracker MCP | Create a single backlog ticket (Task/Bug) from conversation context |
 | n1-story | solution-architect agent + inline context capture, interactive discovery, tracker MCP | Create a story with subtask tickets from conversation context |
-| n1-queue | headless child per ticket (`n1_headless_cmd`: `claude -p`) (n1-start), tracker MCP | Run a batch of tickets (by tag or story subtasks) through the pipeline sequentially without merging; background runner |
+| n1-queue | Orca Codex worker per ticket, tracker MCP | Run an explicit ordered ticket list sequentially through PR and CI without merging |
 | n1-rules | (inline: lib/rules.sh) | List, add, validate project rules; regenerate deny hook |
 
 Agent spawns use N1's own agent definitions. Each gets fresh context — the orchestrator never accumulates full history.

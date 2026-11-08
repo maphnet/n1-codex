@@ -99,12 +99,16 @@ def build_parser():
 def project_slug_from_run(run: dict) -> str | None:
     """Extract the project slug from a run's source path.
 
-    Source paths follow: <n1_root>/<project>/memory/<ticket>/telemetry/runs/<file>.
+    Sources use <project>/memory/<ticket>/telemetry/runs or
+    <project>/codex/telemetry/<ticket>/runs.
     The project slug is the first directory component after n1_root.
     """
     src = run.get("_source_path", "")
     if not src:
         return None
+    path = Path(src)
+    if len(path.parents) >= 5 and path.parents[2].name == 'telemetry' and path.parents[3].name == 'codex':
+        return path.parents[4].name
     # Pattern: .../<project>/memory/<ticket>/telemetry/runs/<file>
     parts = Path(src).parts
     try:
@@ -121,6 +125,9 @@ def ticket_id_from_run(run: dict) -> str | None:
     src = run.get("_source_path", "")
     if not src:
         return None
+    path = Path(src)
+    if len(path.parents) >= 5 and path.parents[2].name == 'telemetry' and path.parents[3].name == 'codex':
+        return path.parents[1].name
     parts = Path(src).parts
     try:
         mem_idx = parts.index("memory")

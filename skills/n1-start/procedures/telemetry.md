@@ -13,7 +13,7 @@ n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANC
 
 Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_run_begin` into every subsequent helper invocation. Never infer identity from the shared discovery file. Missing identity remains unknown. The run's opening envelope is authoritative during finalization.
 
-**Step markers:** Start (before spawning agents): `source "$N1_ROOT/lib/telemetry.sh"; n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "<step_name>" <N> "${N1_HOME}/memory/$ID/telemetry" started_at=now`. End (after updating overview.md): `n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "<step_name>" <N> "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=<pass|fail|skip> loop_iteration=<N|null> metadata='<JSON>'`. Skipped steps: `outcome=skip`.
+**Step markers:** Start (before spawning agents): `source "$N1_ROOT/lib/telemetry.sh"; n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "<step_name>" <N> "$(n1_telemetry_dir "$ID")" started_at=now`. End (after updating overview.md): `n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "<step_name>" <N> "$(n1_telemetry_dir "$ID")" completed_at=now outcome=<pass|fail|skip> loop_iteration=<N|null> metadata='<JSON>'`. Skipped steps: `outcome=skip`.
 
 | step_number | step_name | metadata fields |
 |-------------|-----------|-----------------|

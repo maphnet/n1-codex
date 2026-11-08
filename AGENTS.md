@@ -11,8 +11,12 @@ The original repository and installed Claude plugin must not be modified by work
 - Preserve shared config keys. Claude models remain untouched; Codex reads explicit
   `models.<persona>.codex` overrides and otherwise inherits the host default.
 - Use native Codex tools and project `.codex/agents/n1-*.toml` profiles.
-- Queue lifecycle, generated deny hooks, and detailed Codex usage accounting are not
-  supported in milestone 1. Never silently fall back to Claude.
+- Queues require explicit ordered tickets and at most one unsettled Orca Codex
+  worker. Pause on uncertain assignment or evidence; resume reconciles the original
+  Run. Never merge or modify the base automatically, or silently fall back to Claude.
+- Codex telemetry lives under `$N1_HOME/codex/telemetry/<ID>/`; canonical ticket
+  memory remains shared. Preserve Claude telemetry under `memory/<ID>/telemetry/`.
+- Generated deny hooks and detailed Codex usage accounting remain unsupported.
 
 ## Development
 

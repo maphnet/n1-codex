@@ -11,6 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Bootstrap(unittest.TestCase):
+    def test_telemetry_writers_use_host_routing(self):
+        paths = [ROOT / 'lib/step.sh', ROOT / 'skills/n1-finish/steps/03-deploy.md']
+        paths += list((ROOT / 'skills/n1-start').rglob('*.md'))
+        for path in paths:
+            text = path.read_text()
+            with self.subTest(path=path):
+                self.assertNotRegex(text, r'(?:\$N1_HOME|\$\{N1_HOME\})/memory/(?:\$ID|\$\{ID\})/telemetry')
+
     def test_claude_model_never_rewrites_codex_spawn(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / 'config.json'
@@ -64,10 +72,18 @@ class Bootstrap(unittest.TestCase):
                 '_', str(ROOT), temp, str(target)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertEqual(target.read_text(), 'CLAUDE HOOK')
-            queue = subprocess.run(['bash', str(ROOT / 'scripts/n1-queue-run.sh'), str(target)],
-                                   capture_output=True, text=True)
-            self.assertEqual(queue.returncode, 2)
-            self.assertEqual(target.read_text(), 'CLAUDE HOOK')
+
+    def test_queue_exposes_explicit_supervised_lifecycle(self):
+        skill = (ROOT / 'skills/n1-queue/SKILL.md').read_text()
+        for command in ('n1-queue <ticket-id>...', '--status <queue-id>',
+                        '--stop <queue-id>', '--resume <queue-id>'):
+            self.assertIn(command, skill)
+        self.assertNotIn('milestone 1: unsupported', skill)
+        self.assertNotIn('mergeOnFinish', skill)
+        run = (ROOT / 'skills/n1-queue/steps/run.md').read_text()
+        for requirement in ('worker_done', 'worker-start', 'expected', 'test-merge',
+                            'request_id', 'never merge', 'next'):
+            self.assertIn(requirement, run)
 
 
 if __name__ == '__main__':

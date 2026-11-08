@@ -74,6 +74,27 @@ n1_bg_launch_cmd() {
     return 1
 }
 
+n1_orca_worker_start_cmd() {
+    # Render only; the coordinator first persists and verifies the launch intent.
+    local executable="$1" run="$2" task="$3" placement="$4" selector="$5" base="$6"
+    local model="${7:-}" effort="${8:-}"
+    [ -n "$executable" ] && [ -n "$run" ] && [ -n "$task" ] && [ -n "$selector" ] || return 1
+    local cmd=("$executable" orchestration worker-start --run "$run" --task "$task" --agent codex --json)
+    case "$placement" in
+        existing) cmd+=(--worktree "identity:$selector") ;;
+        new-top-level)
+            case "$selector" in id:?*|path:?*) ;; *) return 1;; esac
+            [ -n "$base" ] || return 1
+            cmd+=(--worktree new-top-level --repo "$selector" --base-branch "$base") ;;
+        *) return 1 ;;
+    esac
+    if [ -n "$model" ]; then
+        cmd+=(--model "$model")
+        [ -z "$effort" ] || cmd+=(--effort "$effort")
+    fi
+    printf '%q ' "${cmd[@]}"
+}
+
 n1_bg_cmd() {
     echo 'N1: Codex background-session control is unsupported in milestone 1.' >&2
     return 1

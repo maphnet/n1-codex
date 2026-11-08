@@ -116,9 +116,10 @@ If `UNKNOWN_COUNT` is 0, skip to Phase 3.
 **Emit question telemetry** for each unknown presented and each "Decide for me":
 ```bash
 source ~/.n1-codex/preamble.sh
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "asked" "codebase|web"
+source "$N1_ROOT/lib/telemetry.sh"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "$(n1_telemetry_dir "$ID")" "investigation-deliverable" "scope" "asked" "codebase|web"
 # For "Decide for me":
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "auto-decided" "codebase|web"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "$(n1_telemetry_dir "$ID")" "investigation-deliverable" "scope" "auto-decided" "codebase|web"
 ```
 
 **Batch unknowns** (max 4; chain if more):
