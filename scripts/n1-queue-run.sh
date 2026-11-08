@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlsplit
 
 ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*\Z')
 SHA = re.compile(r'(?:[0-9a-f]{40}|[0-9a-f]{64})\Z')
@@ -380,6 +381,15 @@ def completion(state, payload):
             'Invalid provider checks')
     state['evidence'].append({**payload, 'kind': 'completion'})
     commit = ci.get('commit')
+    remote = subprocess.run(['git', '-C', state['repo'], 'config', '--get', 'remote.origin.url'],
+                            capture_output=True, text=True, timeout=60).stdout.strip()
+    match = re.fullmatch(r'(?:https://|ssh://(?:[^@/]+@)?)([^/:]+)(?::[0-9]+)?/(.+?)(?:\.git)?/?', remote)
+    if not match:
+        match = re.fullmatch(r'[^@/]+@([^:]+):(.+?)(?:\.git)?/?', remote)
+    url = urlsplit(pr.get('url', '') if isinstance(pr.get('url'), str) else '')
+    canonical = bool(match and url.scheme == 'https' and url.hostname == match.group(1).lower()
+                     and pr.get('repo') == match.group(2)
+                     and url.path.startswith('/' + match.group(2) + '/'))
     settled = any(message.get('type') == 'worker_done'
                   and message.get('dispatch_id') == ticket['dispatch_id']
                   and message.get('outcome') == 'succeeded' and message.get('settled') is True
@@ -389,7 +399,7 @@ def completion(state, payload):
              and done.get('outcome') == 'succeeded' and done.get('settled') is True
              and payload.get('workflow_complete') is True
              and isinstance(pr.get('url'), str) and pr['url'].startswith('https://')
-             and pr.get('repo') and pr.get('repo') == verified.get('repo')
+             and canonical and pr.get('repo') == verified.get('repo')
              and pr.get('branch') == verified.get('branch') == ticket['branch']
              and isinstance(pr.get('head'), str) and SHA.fullmatch(pr['head'])
              and pr['head'] == verified.get('head')
