@@ -417,6 +417,47 @@ n1_queue_merge_gate() {
     printf '%s\t%s' "$url" "$oid"
 }
 
+n1_queue_integration_merge_gate() {
+    # Usage: n1_queue_integration_merge_gate <n1-home> <ticket> <queue-dir> <repo> <integration-ref> [head] [base]
+    # Coordinator-only gate for an authorized integration target.  It emits URL, head and
+    # base SHAs; the caller persists an intent and uses --match-head-commit for the mutation.
+    local home="$1" t="$2" dir="$3" repo="$4" target="$5" expected_head="${6:-}" expected_base="${7:-}"
+    local ov url owner_repo remote_slug js state base head oid merge_oid checks
+    case "$target" in ''|refs/*|*[!A-Za-z0-9._/-]*) echo "gate: invalid integration ref"; return 1 ;; esac
+    [[ "$target" != *'@{'* ]] && git -C "$repo" check-ref-format --branch "$target" >/dev/null 2>&1 \
+        || { echo "gate: invalid integration ref"; return 1; }
+    [ "$target" != "$(N1_HOME="$home" n1_config_val '.git.defaultBranch')" ] || { echo "gate: integration ref is default"; return 1; }
+    ov="$home/memory/$t/overview.md"
+    url=$(n1_queue_child_pr_url "$ov")
+    [[ "$url" =~ ^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/pull/[0-9]+$ ]] || { echo "gate: no real PR URL"; return 1; }
+    owner_repo=$(printf '%s/%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]')
+    remote_slug=$(_n1_queue_repo_slug "$repo")
+    [ -n "$remote_slug" ] && [ "$owner_repo" = "$remote_slug" ] || { echo "gate: PR repo mismatch"; return 1; }
+    js=$(gh pr view "$url" --json headRefName,headRefOid,baseRefName,baseRefOid,mergeable,mergeStateStatus,statusCheckRollup,state,isCrossRepository,mergeCommit 2>/dev/null) \
+        || { echo "gate: gh pr view failed"; return 1; }
+    [ "$(printf '%s' "$js" | jq -r '.isCrossRepository // false')" = false ] || { echo "gate: PR is from a fork"; return 1; }
+    base=$(printf '%s' "$js" | jq -r '.baseRefName // ""')
+    head=$(printf '%s' "$js" | jq -r '.headRefOid // ""')
+    [ "$base" = "$target" ] || { echo "gate: PR base is not authorized integration ref"; return 1; }
+    [ -z "$expected_head" ] || [ "$head" = "$expected_head" ] || { echo "gate: PR head changed"; return 1; }
+    [ -z "$expected_base" ] || [ "$(printf '%s' "$js" | jq -r '.baseRefOid // ""')" = "$expected_base" ] || { echo "gate: integration tip changed"; return 1; }
+    state=$(printf '%s' "$js" | jq -r '.state // ""')
+    if [ "$state" = MERGED ]; then
+        merge_oid=$(printf '%s' "$js" | jq -r '.mergeCommit.oid // ""')
+        [ -n "$merge_oid" ] || { echo "gate: merged PR has no merge commit"; return 1; }
+        git -C "$repo" fetch --no-tags origin "refs/heads/$target:refs/remotes/origin/$target" >/dev/null 2>&1 || { echo "gate: cannot refresh integration ref"; return 1; }
+        git -C "$repo" merge-base --is-ancestor "$merge_oid" "refs/remotes/origin/$target" \
+            || { echo "gate: merged PR is not on authorized integration ref"; return 1; }
+        printf '%s\t%s\t%s' "$url" "$head" "$(printf '%s' "$js" | jq -r '.baseRefOid // ""')"; return 0
+    fi
+    [ "$(printf '%s' "$js" | jq -r '.mergeable // ""')" = MERGEABLE ] || { echo "gate: not mergeable"; return 1; }
+    [ "$(printf '%s' "$js" | jq -r '.mergeStateStatus // ""')" = CLEAN ] || { echo "gate: not clean"; return 1; }
+    printf '%s' "$js" | jq -e '(.statusCheckRollup // []) | length > 0 and all((.conclusion // .state // "") == "SUCCESS" or (.conclusion // .state // "") == "NEUTRAL" or (.conclusion // .state // "") == "SKIPPED")' >/dev/null \
+        || { echo "gate: CI not green"; return 1; }
+    [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "gate: no head sha"; return 1; }
+    printf '%s\t%s\t%s' "$url" "$head" "$(printf '%s' "$js" | jq -r '.baseRefOid // ""')"
+}
+
 n1_queue_sync_default() {
     # Usage: n1_queue_sync_default <repo>
     # N1-64 (CR-1): after the orchestrating session merges a blocking child's PR, fast-forward

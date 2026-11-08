@@ -225,11 +225,13 @@ def launch_intent(state, payload):
     require(not state.get('stop'), 'Stop requested; explicitly resume before mutation')
     operation = payload.get('operation')
     require(state['status'] == 'launching' or (state['status'] == 'active'
-            and operation == 'reference-add'), 'Queue is not ready to mutate')
+            and operation == 'reference-add') or (state['status'] == 'pending'
+            and (state['intent'] or {}).get('operation') == 'integration-merge-ready'
+            and operation == 'integration-merge'), 'Queue is not ready to mutate')
     previous = state['intent']
-    require(previous['operation'] in {'selection', 'recorded'},
+    require(previous['operation'] in {'selection', 'recorded', 'integration-merge-ready'},
             'Uncertain mutation; reconcile its exact identity before continuing')
-    require(operation in {'run-create', 'task-create', 'worker-start', 'reference-add'},
+    require(operation in {'run-create', 'task-create', 'worker-start', 'reference-add', 'integration-merge'},
             'Unsupported external mutation')
     require(payload.get('ticket') == ticket['ticket'] and
             isinstance(payload.get('request_id'), str) and payload['request_id'],
@@ -239,7 +241,15 @@ def launch_intent(state, payload):
     if operation == 'run-create':
         require(state['run_id'] is None, 'Run already established')
     else:
-        require(state['run_id'], 'Persist the Run receipt first')
+        require(state['run_id'] or operation == 'integration-merge', 'Persist the Run receipt first')
+    if operation == 'integration-merge':
+        require(previous['operation'] == 'integration-merge-ready'
+                and payload.get('pr_url') == previous.get('pr_url')
+                and payload.get('integration_ref') == state.get('integration_ref')
+                and payload.get('head_sha') == previous.get('head_sha')
+                and payload.get('base_sha') == previous.get('base_sha')
+                and payload.get('method') in {'merge', 'squash', 'rebase'},
+                'Integration merge intent is not bound to verified readiness')
     if operation == 'task-create':
         require(not ticket.get('task_id'), 'Task already established')
     if operation == 'worker-start':
@@ -292,13 +302,34 @@ def record_receipt(state, payload):
     identity = payload.get('identity', {})
     require(isinstance(identity, dict) and set(identity) <= {
         'run_id', 'task_id', 'dispatch_id', 'workspace', 'branch', 'repo', 'ticket',
-        'terminal', 'terminal_id'}, 'Invalid receipt identity')
+        'terminal', 'terminal_id', 'ref', 'head_sha', 'base_sha', 'merge_commit',
+        'integration_sha'}, 'Invalid receipt identity')
     operation = intent['operation']
     keys = {'run-create': ('run_id',), 'task-create': ('task_id',),
-            'worker-start': ('dispatch_id', 'workspace', 'branch'), 'reference-add': ()}[operation]
+            'worker-start': ('dispatch_id', 'workspace', 'branch'), 'reference-add': (),
+            'integration-merge': ('merge_commit',)}[operation]
     if payload.get('verified') is not True or not all(
             isinstance(identity.get(key), str) and identity[key] for key in keys):
         pause(state, 'Uncertain external result; inspect receipt recovery and exact identities')
+        return
+    if operation == 'integration-merge':
+        valid_merge = (payload.get('verified') is True
+                       and identity.get('repo') == state.get('origin_repo')
+                       and identity.get('ref') == state.get('integration_ref')
+                       and identity.get('head_sha') == intent.get('head_sha')
+                       and identity.get('base_sha') == intent.get('base_sha')
+                       and SHA.fullmatch(identity.get('merge_commit', ''))
+                       and SHA.fullmatch(identity.get('integration_sha', identity.get('merge_commit', ''))))
+        if not valid_merge:
+            pause(state, 'Integration merge receipt is missing or conflicts with its intent')
+            return
+        state['integration_sha'] = identity.get('integration_sha', identity['merge_commit'])
+        state['base_sha'] = state['integration_sha']
+        state['intent'] = None
+        state['receipt'] = payload['receipt']
+        state['status'] = 'succeeded' if all(t['status'] == 'succeeded' for t in state['tickets']) else 'pending'
+        event(state, ticket['ticket'], 'succeeded', 'Coordinator verified integration merge receipt',
+              merge_commit=identity['merge_commit'], integration_sha=state['integration_sha'])
         return
     if operation == 'run-create':
         state['run_id'] = identity['run_id']
@@ -455,13 +486,33 @@ def completion(state, payload):
                      for name in expected)
              and all(check.get('commit') == commit and check.get('conclusion') == 'success'
                      for check in checks))
+    if state.get('integration_ref') is not None:
+        # Integration evidence is merge readiness only: bind every artifact to the
+        # authorized base tip as well as the PR head.  A later tip/head change is stale.
+        valid = valid and pr.get('base') == verified.get('base') == state['integration_ref']
+        valid = valid and pr.get('base_sha') == verified.get('base_sha') == state['integration_sha']
+        valid = valid and (verified.get('test_merge_base') in (None, state['integration_sha']))
     if not valid:
+        if state.get('integration_ref') is not None:
+            revalidation = state.setdefault('revalidation', {'limit': 2, 'attempts': 0})
+            revalidation['attempts'] = min(revalidation.get('limit', 2), revalidation.get('attempts', 0) + 1)
+            revalidation['invalidated_head'] = pr.get('head')
+            revalidation['invalidated_base'] = pr.get('base_sha') or verified.get('base_sha')
         pause(state, 'Missing, stale, failed or inaccessible worker/PR/workflow/CI evidence')
         return
     ticket['status'] = 'succeeded'
-    state['status'] = 'succeeded' if all(t['status'] == 'succeeded' for t in state['tickets']) else 'pending'
-    state['intent'] = None
-    event(state, ticket['ticket'], 'succeeded', 'Settled worker and matching PR/workflow/CI evidence')
+    if state.get('integration_ref') is not None:
+        # Keep the assignment until the coordinator records the separate merge receipt.
+        state['status'] = 'pending'
+        state['intent'] = {'operation': 'integration-merge-ready', 'ticket': ticket['ticket'],
+                           'pr_url': pr['url'], 'integration_ref': state['integration_ref'],
+                           'head_sha': pr['head'], 'base_sha': state['integration_sha']}
+        event(state, ticket['ticket'], 'merge-ready', 'Exact-head integration evidence verified',
+              head_sha=pr['head'], base_sha=state['integration_sha'])
+    else:
+        state['status'] = 'succeeded' if all(t['status'] == 'succeeded' for t in state['tickets']) else 'pending'
+        state['intent'] = None
+        event(state, ticket['ticket'], 'succeeded', 'Settled worker and matching PR/workflow/CI evidence')
 
 
 def main():
