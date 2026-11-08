@@ -39,8 +39,15 @@ two failed fix rounds. Normal implementation, QA, and focused reviews inherit de
   otherwise ask in ordinary text. Required approval waits for an actual answer.
 - Deferred MCP tools: use the exposed discovery mechanism and configured tracker
   server. Do not invent Claude tool names or switch providers silently.
-- Headless queue/background lifecycle is unavailable in this milestone. Report
-  this limitation before starting a queue; do not launch Claude as a fallback.
+- `n1-queue <ticket-id>...` runs an explicit ordered list with at most one
+  unsettled Orca Codex worker through PR and CI. `--status <queue-id>` is read-only;
+  `--stop <queue-id>` prevents launches and requests guarded cancellation;
+  `--resume <queue-id>` reconciles the original Run and assignment before continuing.
+  Unknown blockers prevent that ticket's selection; independent eligible tickets
+  may proceed. Ambiguous receipts or incomplete PR/CI evidence pause work.
+  Queues never merge, modify the base, or use a background daemon or Claude fallback.
+- Codex telemetry writes to `$N1_HOME/codex/telemetry/<ID>/`, leaving Claude's
+  `$N1_HOME/memory/<ID>/telemetry/` intact. Canonical ticket memory remains shared.
 - Existing project deny rules must be ported and tested for Codex before relying
   on them. Do not edit `.claude/settings*.json` or replace Claude hook scripts.
 - Usage accounting is not yet ported. Retain step outcomes/timing; do not interpret
