@@ -186,6 +186,7 @@ def pause(state, reason):
 
 def launch_intent(state, payload):
     ticket = assigned(state)
+    require(not state.get('stop'), 'Stop requested; explicitly resume before mutation')
     operation = payload.get('operation')
     require(state['status'] == 'launching' or (state['status'] == 'active'
             and operation == 'reference-add'), 'Queue is not ready to mutate')
@@ -271,7 +272,9 @@ def record_receipt(state, payload):
             return
         ticket.update({key: value for key, value in identity.items()
                        if key in {'dispatch_id', 'workspace', 'branch', 'repo', 'terminal', 'terminal_id'}})
-        ticket['status'] = state['status'] = 'active'
+        if state.get('stop'):
+            state['stop']['dispatch_id'] = identity['dispatch_id']
+        ticket['status'] = state['status'] = 'paused' if state.get('stop') else 'active'
     state['intent'] = {**intent, 'operation': 'recorded', 'completed_operation': operation}
     event(state, ticket['ticket'], 'receipt', operation, identity=identity)
 
@@ -285,6 +288,77 @@ def wake(state, payload):
     if any(message.get('type') in {'question', 'escalation', 'permission'}
            for message in payload['messages']):
         pause(state, 'Worker needs coordinator or user attention')
+
+
+def stop(state, payload):
+    require(isinstance(payload.get('reason'), str) and payload['reason'].strip(),
+            'Stop requires a reason')
+    require(not state.get('stop'), 'Stop already requested; reconcile its result')
+    ticket = assigned(state) if state['intent'] else None
+    dispatch = ticket.get('dispatch_id') if ticket else None
+    state['stop'] = {'reason': payload['reason'], 'dispatch_id': dispatch}
+    state['status'] = 'paused' if state['intent'] else 'stopped'
+    if ticket:
+        ticket['status'] = 'paused'
+    event(state, ticket['ticket'] if ticket else None, 'stop-requested', payload['reason'],
+          dispatch_id=dispatch)
+
+
+def stop_result(state, payload):
+    request = state.get('stop')
+    require(request and request.get('dispatch_id') and
+            payload.get('dispatch_id') == request['dispatch_id'], 'Stop assignment mismatch')
+    require(isinstance(payload.get('receipt'), dict) and payload['receipt'],
+            'Full stop receipt required')
+    state['evidence'].append({**payload, 'kind': 'stop-result'})
+    settled = payload.get('verified') is True and payload.get('settled') is True
+    request['settled'] = settled
+    state['status'] = 'stopped' if settled else 'paused'
+    assigned(state)['status'] = state['status']
+    event(state, state['intent']['ticket'], 'stop-result',
+          'Verified settled stop' if settled else 'Stop or liveness uncertain')
+
+
+def resume(state, payload):
+    require(state['status'] in {'paused', 'stopped'}, 'Queue is not paused or stopped')
+    require(isinstance(payload.get('reason'), str) and payload['reason'].strip(),
+            'Resume requires a reason')
+    if state['run_id']:
+        require(payload.get('run_id') == state['run_id'] and payload.get('verified') is True
+                and isinstance(payload.get('receipt'), dict) and payload['receipt'],
+                'Rebind and verify the original Run before resume')
+    state['evidence'].append({**payload, 'kind': 'resume'})
+    intent = state['intent']
+    if intent:
+        ticket = assigned(state)
+        if state.get('stop', {}).get('settled') is True:
+            ticket['status'] = 'stopped'
+            state['intent'] = None
+        elif intent['operation'] == 'selection':
+            ticket['status'] = 'pending'
+            state['intent'] = None
+        elif intent['operation'] != 'recorded':
+            pause(state, 'Reconcile the persisted mutation receipt before resuming')
+            return
+        elif ticket.get('dispatch_id'):
+            identity = payload.get('assignment', {})
+            require(isinstance(identity, dict), 'Invalid reconciled assignment')
+            if identity.get('active') is not True or not all(
+                    identity.get(key) == ticket.get(key) for key in
+                    ('dispatch_id', 'workspace', 'repo', 'branch', 'ticket')):
+                pause(state, 'Original assignment liveness or identity remains uncertain')
+                return
+            ticket['status'] = state['status'] = 'active'
+        else:
+            ticket['status'] = state['status'] = 'launching'
+    if state['intent'] is None:
+        state['status'] = 'pending'
+    state.pop('stop', None)
+    # Resume invalidates tracker proofs so selection always rechecks the current base.
+    for ticket in state['tickets']:
+        if ticket['status'] in {'pending', 'blocked'} and ticket['blocker_snapshot']:
+            ticket['blocker_snapshot']['lookup'] = 'unknown'
+    event(state, intent['ticket'] if intent else None, 'resumed', payload['reason'])
 
 
 def completion(state, payload):
@@ -338,9 +412,10 @@ def completion(state, payload):
 def main():
     args = sys.argv[1:]
     operations = {'transition': transition, 'intent': launch_intent, 'receipt': record_receipt,
-                  'wake': wake, 'evidence': completion}
+                  'wake': wake, 'evidence': completion, 'stop': stop,
+                  'stop-result': stop_result, 'resume': resume}
     require(len(args) >= 2 and args[0] in {'init', 'status', 'select'} | operations.keys(),
-            'Usage: init|status|select|transition|intent|receipt|wake|evidence <queue-id> ...')
+            'Usage: init|status|select|transition|intent|receipt|wake|evidence|stop|stop-result|resume <queue-id> ...')
     command, queue, *rest = args
     require(ID.fullmatch(queue), 'Invalid queue ID')
     home = os.environ.get('N1_HOME')

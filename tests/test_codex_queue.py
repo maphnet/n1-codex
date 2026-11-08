@@ -98,6 +98,62 @@ class Queue(unittest.TestCase):
         return self.operation('wake', {'receipt': {'native': 'check'}, 'messages': [
             {'type': 'worker_done', 'dispatch_id': 'dispatch-1', 'outcome': 'succeeded', 'settled': True}]})
 
+    def test_stop_before_launch_and_resume_preserves_order(self):
+        self.init('NC-1', 'NC-2')
+        state = self.operation('stop', {'reason': 'user stop'})
+        self.assertEqual(state['status'], 'stopped')
+        self.assertIsNone(self.call('select', 'queue-1')['selected'])
+        state = self.operation('resume', {'reason': 'user resume'})
+        self.assertEqual(state['status'], 'pending')
+        self.assertEqual([t['ticket'] for t in state['tickets']], ['NC-1', 'NC-2'])
+
+    def test_confirmed_stop_records_receipt_and_never_restarts_ticket(self):
+        self.launch()
+        state = self.operation('stop', {'reason': 'user stop'})
+        self.assertEqual(state['status'], 'paused')
+        self.assertEqual(state['stop']['dispatch_id'], 'dispatch-1')
+        state = self.operation('stop-result', {'dispatch_id': 'dispatch-1',
+            'receipt': {'native': 'stopped'}, 'settled': True, 'verified': True})
+        self.assertEqual(state['status'], 'stopped')
+        state = self.operation('resume', {'reason': 'resume remaining', 'run_id': 'run-1',
+            'receipt': {'native': 'run-use'}, 'verified': True})
+        self.assertEqual(state['tickets'][0]['status'], 'stopped')
+        self.assertIsNone(state['intent'])
+        self.assertIsNone(self.call('select', 'queue-1')['selected'])
+
+    def test_uncertain_stop_resume_requires_same_live_assignment(self):
+        self.launch()
+        self.operation('stop', {'reason': 'user stop'})
+        self.operation('stop-result', {'dispatch_id': 'other', 'receipt': {'native': 'stop'},
+            'verified': True, 'settled': True}, ok=False)
+        state = self.operation('stop-result', {'dispatch_id': 'dispatch-1',
+            'receipt': {'native': 'unknown'}, 'verified': False, 'settled': False})
+        self.assertEqual(state['status'], 'paused')
+        payload = {'reason': 'resume', 'run_id': 'run-1', 'receipt': {'native': 'inspect'},
+            'verified': True}
+        self.assertEqual(self.operation('resume', payload)['status'], 'paused')
+        payload.update(assignment={'dispatch_id': 'dispatch-1', 'workspace': 'workspace-1',
+            'repo': str(self.repo), 'branch': 'actual-branch', 'ticket': 'NC-1', 'active': True})
+        self.assertEqual(self.operation('resume', payload)['status'], 'active')
+        self.assertIsNone(self.call('select', 'queue-1')['selected'])
+        self.operation('intent', {'operation': 'worker-start', 'ticket': 'NC-1',
+            'request_id': 'retry'}, ok=False)
+
+    def test_resume_interrupted_start_keeps_intent_until_reconciled(self):
+        self.launch(record_start=False)
+        self.operation('stop', {'reason': 'interrupted start'})
+        state = self.operation('resume', {'reason': 'resume', 'run_id': 'run-1',
+            'receipt': {'native': 'run-use'}, 'verified': True})
+        self.assertEqual(state['status'], 'paused')
+        self.assertEqual(state['intent']['operation'], 'worker-start')
+        self.assertIsNone(self.call('select', 'queue-1')['selected'])
+        self.operation('receipt', {'request_id': 'worker-start', 'receipt': {'native': 'found'},
+            'verified': True, 'identity': {'dispatch_id': 'dispatch-1', 'workspace': 'workspace-1',
+                'repo': str(self.repo), 'ticket': 'NC-1', 'branch': 'actual-branch'}})
+        state = self.call('status', 'queue-1')
+        self.assertEqual(state['status'], 'paused')
+        self.assertEqual(state['stop']['dispatch_id'], 'dispatch-1')
+
     def test_intent_crash_and_ambiguous_receipt_never_allow_second_start(self):
         self.reserve()
         request = {'operation': 'run-create', 'ticket': 'NC-1', 'request_id': 'request-1'}
