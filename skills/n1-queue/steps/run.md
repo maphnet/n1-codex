@@ -4,7 +4,7 @@ Load installed `orca skills get orchestration` and its coordinator-loop/recovery
 
 ## Durable launch
 
-Read `n1_queue_state status <queue-id>`. Paused/stopped queues follow report.md. Otherwise refresh proofs per intake.md and call `select <queue-id>`. No selection means report reasons and yield. Selection already persists a reservation.
+Read `n1_queue_state status <queue-id>`. Paused/stopped queues follow report.md. Otherwise refresh proofs per intake.md and call `select <queue-id>`. In integration mode, selection fetches and pins the persisted `integration_ref`; a changed tip invalidates blocker proofs until refreshed. No selection means report reasons and yield. Selection already persists a reservation.
 
 Before each external mutation call `intent <queue-id> <revision> <json-file>` with operation, ticket and unique request_id. After the external action call `receipt <queue-id> <revision> <json-file>` before another mutation. Failed intent persistence prohibits the action. Persist failed/ambiguous receipts with verified false and pause. Timeout never authorizes another start, Run, Task or workspace.
 
@@ -18,7 +18,7 @@ Before each external mutation call `intent <queue-id> <revision> <json-file>` wi
 
 ## Required worker brief
 
-Write a self-contained file naming ticket, queue, canonical repository, approved base, scope and acceptance evidence. Require the worker to:
+Write a self-contained file naming ticket, queue, canonical repository, approved base and exact base tip, scope and acceptance evidence. For an integration queue the approved base is the persisted `integration_ref` at its pinned `integration_sha`; the child PR must target that branch exactly. Require the worker to:
 - Invoke N1 start for this ticket through PR and CI; never merge, modify the base or process another ticket.
 - Preserve others' work and native permissions; raise questions/access blockers through Orca. No Stop hook is assumed.
 - Persist actual outcome and PR URL/repository/branch/current head, workflow completion, applicable CI commit, expected provider check identities and every check's conclusion/source.

@@ -152,17 +152,26 @@ def select(state):
     if state['intent'] is not None or state['status'] in {'paused', 'stopped'} or any(
             t['status'] in {'launching', 'active', 'paused'} for t in state['tickets']):
         return {'selected': None, 'reasons': {'queue': 'Active or uncertain assignment'}, 'state': state}
-    repo, base = state['repo'], state['base_ref']
+    repo = state['repo']
+    # Integration queues always follow their immutable approved target.  The
+    # compatibility base_ref projection is kept for ordinary queues and
+    # worker receipts.
+    base = state.get('integration_ref') or state['base_ref']
     ref = 'refs/heads/' + base.removeprefix('refs/heads/')
     tracking = 'refs/remotes/origin/' + ref.removeprefix('refs/heads/')
     git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', 'origin', '+' + ref + ':' + tracking)
     sha = git(repo, 'rev-parse', '--verify', tracking + '^{commit}')
+    tip_changed = state.get('integration_ref') is not None and state.get('integration_sha') != sha
+    if state.get('integration_ref') is not None:
+        state['integration_sha'] = sha
     selected = None
     for ticket in state['tickets']:
         if ticket['status'] not in {'pending', 'blocked'}:
             continue
         proof = ticket['blocker_snapshot']
         reason = None
+        if tip_changed and proof:
+            proof['lookup'] = 'unknown'
         if not proof or proof['lookup'] != 'verified':
             reason = 'Unknown tracker blocker evidence'
         elif proof['base_sha'] != sha:
@@ -236,8 +245,14 @@ def launch_intent(state, payload):
     if operation == 'worker-start':
         require(ticket.get('task_id') and not ticket.get('dispatch_id'),
                 'Persist the Task receipt first; never start twice')
-        require(payload.get('repo') == state['repo'] and payload.get('base') == state['base_ref'],
+        expected_base = state.get('integration_ref') or state['base_ref']
+        require(payload.get('repo') == state['repo'] and payload.get('base') == expected_base,
                 'Launch repository or base mismatch')
+        if state.get('integration_ref') is not None:
+            require(payload.get('base') != state.get('default_ref'),
+                    'Worker cannot launch from the protected default branch')
+            require(payload.get('base_sha') == state.get('integration_sha') == state.get('base_sha'),
+                    'Launch integration tip mismatch')
         placement = payload.get('placement', {})
         require(isinstance(placement, dict), 'Invalid placement')
         require(not placement.get('configured_root'), 'Configured placement cannot be honored')

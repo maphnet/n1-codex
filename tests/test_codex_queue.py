@@ -41,6 +41,16 @@ class Queue(unittest.TestCase):
     def init(self, *tickets):
         return self.call('init', 'queue-1', self.repo, 'main', *tickets)
 
+    def init_integration(self, *tickets):
+        self.git('branch', 'integration/NC-2')
+        self.git('push', '-q', 'origin', 'integration/NC-2')
+        grant = self.root / 'grant.json'
+        grant.write_text(json.dumps({
+            'repo': str(self.repo), 'origin': 'example.test/owner/repo',
+            'default_ref': 'main', 'integration_ref': 'integration/NC-2',
+            'approval': {'source': 'NC-2 approval', 'scope': 'integration-only'}}))
+        return self.call('init', 'queue-1', self.repo, 'main', '--grant', grant, *tickets)
+
     def transition(self, revision, payload, ok=True):
         path = self.root / ('change-' + str(revision) + '.json')
         path.write_text(json.dumps(payload))
@@ -378,6 +388,33 @@ class Queue(unittest.TestCase):
                  'commit', '-q', '--allow-empty', '-m', 'new base')
         self.git('push', '-q', 'origin', 'main')
         self.assertIsNone(self.call('select', 'queue-1')['selected'])
+
+    def test_integration_selection_refreshes_tip_and_invalidates_proof(self):
+        self.init_integration('NC-1')
+        self.transition(0, self.proof('NC-1'))
+        old = self.call('status', 'queue-1')['integration_sha']
+        self.git('-c', 'user.name=Queue Test', '-c', 'user.email=test@example.test',
+                 'commit', '-q', '--allow-empty', '-m', 'advance integration')
+        self.git('push', '-q', 'origin', 'HEAD:integration/NC-2')
+        result = self.call('select', 'queue-1')
+        self.assertIsNone(result['selected'])
+        state = self.call('status', 'queue-1')
+        self.assertNotEqual(state['integration_sha'], old)
+        self.assertEqual(state['tickets'][0]['blocker_snapshot']['lookup'], 'unknown')
+
+    def test_integration_worker_start_rejects_default_base(self):
+        self.init_integration('NC-1')
+        self.transition(0, self.proof('NC-1'))
+        self.call('select', 'queue-1')
+        for operation, identity in [('run-create', {'run_id': 'run-1'}),
+                                    ('task-create', {'task_id': 'task-1'})]:
+            self.operation('intent', {'operation': operation, 'request_id': operation,
+                                      'ticket': 'NC-1'})
+            self.operation('receipt', {'request_id': operation, 'receipt': {'native': operation},
+                                       'verified': True, 'identity': identity})
+        self.operation('intent', {'operation': 'worker-start', 'request_id': 'start',
+            'ticket': 'NC-1', 'repo': str(self.repo), 'base': 'main',
+            'placement': {'mode': 'new-top-level', 'repo_selector': 'id:repo-1'}}, ok=False)
 
     def test_base_race_does_not_persist_a_reservation(self):
         self.init('NC-1')
