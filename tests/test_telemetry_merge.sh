@@ -140,6 +140,48 @@ OUT5="$TELEM_DIR5/runs/$RUN_ID5.jsonl"
 FINAL_OUTCOME5=$(jq -r '.final_outcome' "$OUT5")
 assert_eq "NP-236: last envelope_close wins over first" "pr_created" "$FINAL_OUTCOME5"
 
+# Codex runs use an alternate home without touching historical Claude data.
+export N1_HOME="$T/alternate-project" N1_SESSION_ID=session-a
+unset N1_RUN_ID
+mkdir -p "$N1_HOME/memory/NC-3/telemetry"
+printf 'historical Claude telemetry\n' > "$T/sentinel"
+cp "$T/sentinel" "$N1_HOME/memory/NC-3/telemetry/sentinel"
+source "$REPO_ROOT/lib/step.sh"
+ID=NC-3
+n1_run_begin "$ID"
+RUN_A=$N1_RUN_ID
+CODEX_TELEM="$N1_HOME/codex/telemetry/$ID"
+assert_eq "Codex root honors alternate home" "$CODEX_TELEM" "$(n1_telemetry_dir "$ID")"
+assert_eq "Other hosts retain historical root" "$N1_HOME/memory/$ID/telemetry" "$(n1_host() { printf claude-code; }; n1_telemetry_dir "$ID")"
+n1_step_begin analysis 2
+n1_step_end analysis 2 pass
+n1_record_decision isolation true '' source=test
+n1_read_lock "$N1_HOME/memory"
+assert_eq "Codex lock root" "$CODEX_TELEM" "$N1_LOCK_TELEM_DIR"
+assert_eq "Codex lock ticket" "$ID" "$N1_LOCK_TICKET_ID"
+assert_eq "Codex decision written" 1 "$(jq -s '[.[] | select(.event == "decision")] | length' "$CODEX_TELEM/raw/steps/$RUN_A.jsonl")"
+export N1_SESSION_ID=session-b
+n1_run_begin "$ID"
+RUN_B=$N1_RUN_ID
+n1_read_lock "$N1_HOME/memory"
+assert_eq "Second session owns its lock" "$RUN_B" "$N1_LOCK_RUN_ID"
+export N1_SESSION_ID=session-a
+unset N1_RUN_ID
+n1_read_lock "$N1_HOME/memory"
+assert_eq "First session recovers its lock" "$RUN_A" "$N1_LOCK_RUN_ID"
+n1_run_begin "$ID"
+RUN_C=$N1_RUN_ID
+unset N1_RUN_ID
+if n1_read_lock "$N1_HOME/memory"; then assert_eq "Ambiguous discovery fails" fail success; else assert_eq "Ambiguous discovery fails" fail fail; fi
+unset N1_SESSION_ID CODEX_THREAD_ID
+if n1_read_lock "$N1_HOME/memory"; then assert_eq "Identity-less discovery fails" fail success; else assert_eq "Identity-less discovery fails" fail fail; fi
+export N1_SESSION_ID=session-a N1_RUN_ID=$RUN_A
+n1_merge_pending "$N1_HOME/memory"
+assert_eq "Merged run exists" yes "$([ -s "$CODEX_TELEM/runs/$RUN_A.jsonl" ] && echo yes)"
+assert_eq "Only selected lock removed" yes "$([ ! -f "$CODEX_TELEM/locks/$RUN_A.json" ] && [ -f "$CODEX_TELEM/locks/$RUN_B.json" ] && [ -f "$CODEX_TELEM/locks/$RUN_C.json" ] && echo yes)"
+assert_eq "Claude sentinel unchanged" yes "$(cmp -s "$T/sentinel" "$N1_HOME/memory/NC-3/telemetry/sentinel" && echo yes)"
+assert_eq "No Codex writes to Claude tree" 1 "$(find "$N1_HOME/memory/NC-3/telemetry" -type f | wc -l | tr -d ' ')"
+
 echo "---"
 echo "$((PASS+FAIL)) tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

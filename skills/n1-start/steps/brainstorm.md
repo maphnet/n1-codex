@@ -4,7 +4,8 @@
 
 ```bash
 source ~/.n1-codex/preamble.sh
-n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/memory/$ID/telemetry" started_at=now
+source "$N1_ROOT/lib/telemetry.sh"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "$(n1_telemetry_dir "$ID")" started_at=now
 INVESTIGATE_INTERACTIVE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive")
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm'); [ "$INVESTIGATE_INTERACTIVE" = "true" ] && BRAINSTORM_MODE=interactive
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
@@ -40,10 +41,11 @@ Skip when investigation mode. Read `DESC_QUALITY`. Present checkpoint: design sa
 
 ```bash
 source ~/.n1-codex/preamble.sh
+source "$N1_ROOT/lib/telemetry.sh"
 source "$N1_ROOT/lib/memory.sh"
 ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate')
-if [ "$ACCEPTANCE_GATE" = "auto" ]; then n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "auto-decided" "---"
-else n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "asked" "codebase|web"; fi
+if [ "$ACCEPTANCE_GATE" = "auto" ]; then n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "$(n1_telemetry_dir "$ID")" "brainstorm" "design" "auto-decided" "---"
+else n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "$(n1_telemetry_dir "$ID")" "brainstorm" "design" "asked" "codebase|web"; fi
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"
 n1_record_decision planning-need-direct "$( [ "$PLANNING_NEED" = "direct" ] && echo true || echo false )" '{"signal":"brainstorm.design_clarity","eq":"high"}' "planning_need=$PLANNING_NEED"
 [ "$PLANNING_NEED" = "direct" ] && DESIGN_CLARITY="high" || DESIGN_CLARITY="medium"

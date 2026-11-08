@@ -55,8 +55,9 @@ fi
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export N1_HOME="$T/home"
 export ID="SP-1"
+TELEM="$N1_HOME/codex/telemetry/$ID"; mkdir -p "$TELEM"
 MEM="$N1_HOME/memory/$ID"
-mkdir -p "$MEM/telemetry"
+mkdir -p "$MEM"
 
 fixture() {
     local tier="$1" type="$2" blast="$3" files="$4" security="$5" root_cause="$6"
@@ -93,10 +94,10 @@ check "T14: files_changed=0 fires"                    simple  task  low  0 false
 fixture simple task low 2 false ""
 unset N1_SESSION_ID CODEX_THREAD_ID
 export N1_SESSION_ID=test-session
-echo '{"run_id":"run-sp","n1_version":"3.4.0","host":"codex","session_id":"test-session"}' > "$MEM/telemetry/telemetry.lock"
+echo '{"run_id":"run-sp","n1_version":"3.4.0","host":"codex","ticket_id":"SP-1","session_id":"test-session"}' > "$TELEM/telemetry.lock"
 n1_record_decision simple-path true "$COND" "tier=simple" "type=task" "blast=low" "files_changed=2" "security_relevant=false" "has_bug_root_cause="
 
-LINE=$(tail -1 "$MEM/telemetry/raw/steps/run-sp.jsonl" 2>/dev/null)
+LINE=$(tail -1 "$TELEM/raw/steps/run-sp.jsonl" 2>/dev/null)
 assert_eq "T15: event type"    "decision"    "$(echo "$LINE" | jq -r .event)"
 assert_eq "T16: decision id"   "simple-path" "$(echo "$LINE" | jq -r .id)"
 assert_eq "T17: result true"   "true"        "$(echo "$LINE" | jq -r .result)"

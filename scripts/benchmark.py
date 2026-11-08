@@ -89,7 +89,7 @@ def count_tool_calls(path: Path):
 
 
 def load_runs(n1_root: Path):
-    """Load merged run records from <n1_root>/*/memory/*/telemetry/runs/*.jsonl.
+    """Load historical and isolated Codex merged run records across projects.
 
     Returns (runs, malformed_line_count). Dedupes by run_id keeping the last line.
     """
@@ -98,7 +98,9 @@ def load_runs(n1_root: Path):
     malformed = 0
     if not n1_root.is_dir():
         return [], 0
-    for path in sorted(n1_root.glob("*/memory/*/telemetry/runs/*.jsonl")):
+    paths = set(n1_root.glob("*/memory/*/telemetry/runs/*.jsonl"))
+    paths.update(n1_root.glob("*/codex/telemetry/*/runs/*.jsonl"))
+    for path in sorted(paths):
         for rec, bad in read_jsonl(path):
             if bad is not None:
                 malformed += 1

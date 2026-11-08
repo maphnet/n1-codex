@@ -17,6 +17,13 @@ analyzer = load("telemetry_analyzer", REPO / "scripts" / "telemetry_analyzer.py"
 
 
 class TelemetryConsumersTest(unittest.TestCase):
+    def test_codex_source_identity(self):
+        run = {'_source_path': '/alternate/project/codex/telemetry/NC-3/runs/run.jsonl'}
+        self.assertEqual(analyzer.project_slug_from_run(run), 'project')
+        self.assertEqual(analyzer.ticket_id_from_run(run), 'NC-3')
+        self.assertIsNone(analyzer.project_slug_from_run({'_source_path': 'run.jsonl'}))
+        self.assertIsNone(analyzer.ticket_id_from_run({'_source_path': 'run.jsonl'}))
+
     def test_missing_usage_stays_unknown(self):
         run = {"host": "unknown", "summary": {},
                "agents": [{"agent_type": "n1-developer", "usage_status": "unknown"}]}

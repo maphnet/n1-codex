@@ -50,8 +50,9 @@ fi
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export N1_HOME="$T/home"
 export ID="T-1"
+TELEM="$N1_HOME/codex/telemetry/$ID"; mkdir -p "$TELEM"
 MEM="$N1_HOME/memory/$ID"
-mkdir -p "$MEM/telemetry"
+mkdir -p "$MEM"
 
 fixture() {
     printf -- '---\ntier: %s\ntype: %s\n---\n' "$1" "$2" > "$MEM/overview.md"
@@ -92,10 +93,10 @@ assert_eq "T12: missing ticket.md never fires" "false" "$r"
 fixture simple task adequate
 unset N1_SESSION_ID CODEX_THREAD_ID
 export N1_SESSION_ID=test-session
-echo '{"run_id":"run-lite","n1_version":"2.100.0","host":"codex","session_id":"test-session"}' > "$MEM/telemetry/telemetry.lock"
+echo '{"run_id":"run-lite","n1_version":"2.100.0","host":"codex","ticket_id":"T-1","session_id":"test-session"}' > "$TELEM/telemetry.lock"
 n1_record_decision lite-analysis-gate true "$COND" "tier=simple" "type=task" "quality=adequate"
 
-LINE=$(tail -1 "$MEM/telemetry/raw/steps/run-lite.jsonl" 2>/dev/null)
+LINE=$(tail -1 "$TELEM/raw/steps/run-lite.jsonl" 2>/dev/null)
 assert_eq "T13: event type"        "decision"           "$(echo "$LINE" | jq -r .event)"
 assert_eq "T14: decision id"       "lite-analysis-gate" "$(echo "$LINE" | jq -r .id)"
 assert_eq "T15: result"            "true"               "$(echo "$LINE" | jq -r .result)"

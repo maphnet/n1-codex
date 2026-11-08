@@ -31,6 +31,7 @@ Update overview: `[x] PR`, set `step: pr`.
 
 ```bash
 source ~/.n1-codex/preamble.sh
+source "$N1_ROOT/lib/telemetry.sh"
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/fingerprints.sh"
 source "$N1_ROOT/lib/validation.sh"
@@ -44,7 +45,7 @@ FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 BLOCKING_C1=$(n1_fingerprint_blocking_count_for_cycle "$FP_FILE" 0 2>/dev/null || echo 0)
 BC_VERDICT=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "break_check_verdict"); BC_VERDICT=${BC_VERDICT:-skipped}
 DISCARDED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_discarded_count"); DISCARDED=${DISCARDED:-0}
-n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" \
+n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "$(n1_telemetry_dir "$ID")" \
     "review_pass_first_try=$REVIEW_FIRST" \
     "qa_pass_first_try=$QA_FIRST" \
     "fix_cycles_count=$FIX_TOTAL" \
