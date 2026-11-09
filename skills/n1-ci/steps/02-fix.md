@@ -62,7 +62,7 @@ For each failed check (name, category, run ID):
 
 For "unknown" category checks: include a confidence assessment (0.0-1.0).
 
-Commit all fixes with descriptive messages. Push to the PR branch after committing.
+Commit all fixes with descriptive messages. Do not push; the full native review must run first.
 
 Output format:
 ## CI Fixes Applied
@@ -80,7 +80,7 @@ Output format:
 **After developer returns:**
 1. Handle `unknown` fixes below threshold (Step 5b flow)
 2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`.
-3. Push if developer didn't: `git push`
+3. Rerun the full native review core in `n1-start/steps/review.md` on the final clean committed head, or return `escalated` without pushing. Then `git push` and atomically reattach the PR using `n1-reviewed-head.py attach` after remote identity and head match. If attachment fails, return `escalated`.
 4. ```bash
    source ~/.n1-codex/preamble.sh
    source "$N1_ROOT/lib/frontmatter.sh"

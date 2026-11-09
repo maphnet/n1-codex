@@ -140,10 +140,10 @@ assert_contains "pr: prMode skip short-circuit" \
     '**If `prMode` is `"skip"`**'
 assert_contains "ci: prMode skip guard" \
     "skills/n1-start/steps/ci.md" \
-    '**If `prMode` is `"skip"`**'
-assert_contains "finish: runs in skip mode" \
+    'For `prMode: skip`'
+assert_contains "finish: skipped PR does not automatically merge" \
     "skills/n1-start/steps/finish.md" \
-    'n1-finish takes the local-merge path'
+    'never automatically local merge'
 assert_contains "finalize: pr_skipped outcome" \
     "skills/n1-start/procedures/finalize.md" \
     '`pr_skipped`'

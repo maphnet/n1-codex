@@ -52,6 +52,8 @@ Also read `git.prMode` (fallback chain: `git.prMode` → `git.draftPR: false` = 
 
 When invoked by start, return exactly `merged`, `open`, `skipped`, `failed`, or `escalated` with a reason. Return `merged` only after the merge is confirmed; preserve open PR and run evidence on all other paths. Start owns the final telemetry close and active-run cleanup.
 
+Ordinary unattended merges require current run and PR-bound full native review evidence and the guarded merge procedure in Step 2. Queue children and final queue PRs are human-owned and never use that path, including with interactive approval.
+
 ## Steps
 
 Execute steps in order. Read each step file and follow its instructions before proceeding to the next.
