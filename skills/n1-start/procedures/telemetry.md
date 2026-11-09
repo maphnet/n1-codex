@@ -9,9 +9,16 @@ n1_run_begin "$ID"
 n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
 ```
 
-**If `false`:** skip all telemetry shell calls. Do not generate `N1_RUN_ID`.
+**If `false`:** create the run identity without telemetry IO:
+```bash
+source ~/.n1-codex/preamble.sh
+source "$N1_ROOT/lib/telemetry.sh"
+n1_run_identity
+n1_active_run_write "$ID" "$N1_RUN_ID" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
+```
+Skip all telemetry IO when disabled.
 
-Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_run_begin` into every subsequent helper invocation. Never infer identity from the shared discovery file. Missing identity remains unknown. The run's opening envelope is authoritative during finalization.
+Carry `N1_SESSION_ID`, `N1_RUN_ID`, and, when disabled, `N1_TELEMETRY_DISABLED=1` into every helper shell. Never infer identity from shared discovery. The enabled run's opening envelope is authoritative.
 
 **Step markers:** Start (before spawning agents): `source "$N1_ROOT/lib/telemetry.sh"; n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "<step_name>" <N> "$(n1_telemetry_dir "$ID")" started_at=now`. End (after updating overview.md): `n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "<step_name>" <N> "$(n1_telemetry_dir "$ID")" completed_at=now outcome=<pass|fail|skip> loop_iteration=<N|null> metadata='<JSON>'`. Skipped steps: `outcome=skip`.
 

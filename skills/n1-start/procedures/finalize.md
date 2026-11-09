@@ -29,6 +29,11 @@ n1_active_run_clear
 1. `$N1_HOME/memory/$ID/implementation.md` — `## Implementation Summary`
 2. `$N1_HOME/memory/$ID/qa.md` — verdict + Evidence (verbatim)
 3. `$N1_HOME/memory/$ID/local-testing.md` — report (verbatim, or SKIPPED line)
-4. `$N1_HOME/memory/$ID/overview.md` — `## Pending` for PR URL; frontmatter `ticket_url` for tracker link
+4. `$N1_HOME/memory/$ID/overview.md` — `## Finish` `pr_url` after merge, otherwise `## Pending` for PR URL; frontmatter `ticket_url` for tracker link
+
+For a confirmed merge, extract the retained URL before emitting Gate 3:
+```bash
+PR_URL=$(awk '/^## / { in_finish = ($0 == "## Finish"); next } in_finish && /^pr_url: / { sub(/^pr_url: /, ""); print; exit }' "$N1_HOME/memory/$ID/overview.md")
+```
 
 Copy test commands and result lines verbatim. Every skipped step gets `SKIPPED — <reason>`. `Ticket:` omitted when `ticket_url` is empty. PR URL is Gate 3's final field (or `PR: SKIPPED` if skipped). Investigation tickets: use investigation-mode variant.

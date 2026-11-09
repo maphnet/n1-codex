@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -35,10 +36,11 @@ def save(path, data):
                 os.unlink(out.name)
 
 
-def remote(repo, branch, head, pr):
+def remote(repo, branch, base, head, pr):
     data = api(f'repos/{repo}/pulls/{pr}')
     require(data['number'] == pr and data['state'] == 'open'
             and data['base']['repo']['full_name'] == repo
+            and data['base']['ref'] == base
             and data['head']['repo']['full_name'] == repo
             and data['head']['ref'] == branch and data['head']['sha'] == head,
             'PR identity or head changed')
@@ -68,16 +70,19 @@ def main():
     home = Path(os.environ['N1_HOME'])
     path = home / 'memory' / ticket / 'reviewed-head.json'
     if action == 'record':
-        head, tier, code, security = args
+        head, base, tier, code, security = args
+        require(base and base != branch, 'Missing or invalid PR base')
         require(tier == 'FULL' and code == 'pass' and security in ('pass', 'not-required'), 'Full review gates required')
         require(not command('git', 'status', '--porcelain') and command('git', 'rev-parse', 'HEAD') == head, 'Review tree changed')
-        save(path, dict(repository=repo, branch=branch, head=head, run_id=run, verdict='pass'))
+        save(path, dict(repository=repo, branch=branch, base=base, head=head, run_id=run, verdict='pass'))
         return
     data = json.loads(path.read_text())
     require(all(data.get(k) == v for k, v in dict(repository=repo, branch=branch, run_id=run, verdict='pass').items()), 'Review identity mismatch')
     head = data['head']
+    base = data['base']
+    require(isinstance(base, str) and base and base != branch, 'Invalid approved base')
     pr = int(args[0])
-    remote(repo, branch, head, pr)
+    remote(repo, branch, base, head, pr)
     if action == 'attach':
         data['pr'] = pr
         save(path, data)
@@ -88,15 +93,23 @@ def main():
     require(data.get('pr') == pr and not os.environ.get('N1_QUEUE_RUN_ID'), 'PR or queue ownership mismatch')
     config = json.loads((home / 'config.json').read_text())
     unattended = action == 'merge'
-    require((not unattended and os.environ.get('N1_INTERACTIVE_APPROVED') == 'yes') or
+    require((not unattended and os.environ.get('N1_HEADLESS') != '1' and os.environ.get('N1_INTERACTIVE_APPROVED') == 'yes') or
             (unattended and config.get('autonomy', {}).get('fullAuto') is True and config.get('finishWork', {}).get('mergeOnFinish') is True), 'Merge grants missing')
     for state_path in (home / 'queue').glob('*/state.json'):
         state = json.loads(state_path.read_text())
+        require(isinstance(state, dict) and state.get('version') == 1
+                and state.get('queue_id') == state_path.parent.name
+                and all(isinstance(state.get(k), str) and state[k] for k in ('repo', 'base_ref', 'default_ref'))
+                and all(k in state for k in ('origin_repo', 'integration_ref', 'integration_sha')), 'Invalid queue identity')
         origin = state.get('origin_repo')
-        require(isinstance(origin, str), 'Unknown queue repository')
-        require(not ((origin == repo or origin.endswith('/' + repo)) and state.get('integration_ref') == branch), 'Queue final PR is human-owned')
+        require(isinstance(origin, str) and origin and 'integration_ref' in state
+                and (state['integration_ref'] is None or (isinstance(state['integration_ref'], str) and state['integration_ref'])), 'Unknown queue identity')
+        if state['integration_ref'] is not None:
+            require((isinstance(state['integration_sha'], str) and re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', state['integration_sha']))
+                    or (state['integration_sha'] is None and isinstance(state.get('intent'), dict) and state['intent'].get('operation') == 'integration-branch-setup'), 'Invalid queue target')
+        require(not ((origin == repo or origin.endswith('/' + repo)) and state['integration_ref'] == branch), 'Queue final PR is human-owned')
     eligible(repo, head, pr)
-    remote(repo, branch, head, pr)
+    remote(repo, branch, base, head, pr)
     eligible(repo, head, pr)
     command('gh', 'pr', 'merge', str(pr), '--repo', repo, '--'+method, '--match-head-commit', head, '--delete-branch')
     result = api(f'repos/{repo}/pulls/{pr}')

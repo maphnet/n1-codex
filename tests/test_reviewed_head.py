@@ -41,12 +41,12 @@ print((root/name).read_text())
         self.env = dict(os.environ, N1_HOME=str(self.root), PATH=str(self.root / 'bin') + ':' + os.environ['PATH'])
         self.env.pop('N1_QUEUE_RUN_ID', None)
         self.write('config.json', {'autonomy': {'fullAuto': True}, 'finishWork': {'mergeOnFinish': True}})
-        self.write('pr', {'number': 4, 'state': 'open', 'base': {'repo': {'full_name': 'o/r'}}, 'head': {'repo': {'full_name': 'o/r'}, 'ref': 'feature', 'sha': HEAD}})
+        self.write('pr', {'number': 4, 'state': 'open', 'base': {'repo': {'full_name': 'o/r'}, 'ref': 'main'}, 'head': {'repo': {'full_name': 'o/r'}, 'ref': 'feature', 'sha': HEAD}})
         self.write('merged', {'merged': True, 'merge_commit_sha': 'b' * 40})
         self.write('checks', {'total_count': 0, 'check_runs': []})
         self.write('status', {'statuses': []})
         self.write('review', {'data': {'repository': {'pullRequest': {'reviewThreads': {'pageInfo': {'hasNextPage': False}, 'nodes': []}, 'latestOpinionatedReviews': {'pageInfo': {'hasNextPage': False}, 'nodes': []}}}}})
-        self.evidence = {'repository': 'o/r', 'branch': 'feature', 'head': HEAD, 'run_id': 'run', 'verdict': 'pass', 'pr': 4}
+        self.evidence = {'repository': 'o/r', 'branch': 'feature', 'base': 'main', 'head': HEAD, 'run_id': 'run', 'verdict': 'pass', 'pr': 4}
         self.write('memory/T/reviewed-head.json', self.evidence)
 
     def write(self, name, data):
@@ -97,16 +97,16 @@ print((root/name).read_text())
         self.env['N1_QUEUE_RUN_ID'] = 'queue'
         self.assertNotEqual(self.run_guard().returncode, 0)
         del self.env['N1_QUEUE_RUN_ID']
-        self.write('queue/Q/state.json', {'origin_repo': 'github.com/o/r', 'integration_ref': 'feature'})
+        self.write('queue/Q/state.json', {'version': 1, 'queue_id': 'Q', 'repo': '/repo', 'base_ref': 'main', 'default_ref': 'main', 'origin_repo': 'github.com/o/r', 'integration_ref': 'feature', 'integration_sha': HEAD})
         self.assertNotEqual(self.run_guard().returncode, 0)
 
     def test_record_needs_full_passing_gates_and_current_head(self):
         path = self.root/'memory/T/reviewed-head.json'
-        for args in [(HEAD, 'NARROW', 'pass', 'pass'), (HEAD, 'FULL', 'fail', 'pass'), (HEAD, 'FULL', 'pass', 'fail'), ('c'*40, 'FULL', 'pass', 'pass')]:
+        for args in [(HEAD, 'main', 'NARROW', 'pass', 'pass'), (HEAD, 'main', 'FULL', 'fail', 'pass'), (HEAD, 'main', 'FULL', 'pass', 'fail'), ('c'*40, 'main', 'FULL', 'pass', 'pass')]:
             path.unlink(missing_ok=True)
             self.assertNotEqual(self.run_guard('record', *args).returncode, 0)
             self.assertFalse(path.exists())
-        self.assertEqual(self.run_guard('record', HEAD, 'FULL', 'pass', 'pass').returncode, 0)
+        self.assertEqual(self.run_guard('record', HEAD, 'main', 'FULL', 'pass', 'pass').returncode, 0)
         self.assertEqual(json.loads(path.read_text())['head'], HEAD)
 
     def test_attach_requires_current_remote_and_api_errors_stop(self):
@@ -120,6 +120,47 @@ print((root/name).read_text())
         self.env['N1_INTERACTIVE_APPROVED'] = 'yes'
         result = self.run_guard('interactive-merge')
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_retarget_headless_and_incomplete_queue_stop(self):
+        pr = json.loads((self.root/'pr').read_text())
+        pr['base']['ref'] = 'other'
+        self.write('pr', pr)
+        self.assertNotEqual(self.run_guard('attach').returncode, 0)
+        self.assertNotEqual(self.run_guard().returncode, 0)
+        pr['base']['ref'] = 'main'
+        self.write('pr', pr)
+        self.env.update(N1_INTERACTIVE_APPROVED='yes', N1_HEADLESS='1')
+        self.assertNotEqual(self.run_guard('interactive-merge').returncode, 0)
+        self.env.pop('N1_HEADLESS')
+        self.write('queue/Q/state.json', {'origin_repo': 'github.com/o/r'})
+        self.assertNotEqual(self.run_guard().returncode, 0)
+        queue = {'version': 1, 'queue_id': 'Q', 'repo': '/repo', 'base_ref': 'main', 'default_ref': 'main', 'origin_repo': 'github.com/o/r', 'integration_sha': None}
+        for invalid in ('', 42, [], {}):
+            self.write('queue/Q/state.json', dict(queue, integration_ref=invalid))
+            self.assertNotEqual(self.run_guard().returncode, 0)
+        self.write('queue/Q/state.json', dict(queue, integration_ref=None))
+        self.assertEqual(self.run_guard().returncode, 0)
+
+    def test_standalone_review_evidence_then_push_and_attach_without_memory(self):
+        workflow = (SCRIPT.parent.parent / 'skills/n1-ci/steps/02-fix.md').read_text()
+        block = workflow.split('Only after all required lanes pass')[1].split('```bash\n')[1].split('```')[0]
+        self.env.update(N1_ROOT=str(SCRIPT.parent.parent), EVIDENCE_ID='CI-4-run', REVIEW_REPO='o/r',
+                        REVIEW_BRANCH='feature', REVIEW_HEAD=HEAD, REVIEW_BASE='main',
+                        PR_NUMBER='4', SECURITY_VERDICT='pass', N1_RUN_ID='run')
+        result = subprocess.run(['bash', '-c', block], env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        evidence = json.loads((self.root/'memory/CI-4-run/reviewed-head.json').read_text())
+        self.assertEqual((evidence['head'], evidence['base'], evidence['pr']), (HEAD, 'main', 4))
+        self.assertFalse((self.root/'memory/CI-4-run/implementation.md').exists())
+
+    def test_merged_report_reads_finish_url_after_pending_cleanup(self):
+        workflow = (SCRIPT.parent.parent / 'skills/n1-start/procedures/finalize.md').read_text()
+        block = workflow.split('For a confirmed merge')[1].split('```bash\n')[1].split('```')[0]
+        path = self.root/'memory/T/overview.md'
+        path.write_text('## Finish\n- **Merged:** abc\npr_url: https://example.test/pr/4\n')
+        self.env['ID'] = 'T'
+        result = subprocess.run(['bash', '-c', block + '\nprintf "%s" "$PR_URL"'], env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.stdout, 'https://example.test/pr/4')
 
 
 if __name__ == '__main__':

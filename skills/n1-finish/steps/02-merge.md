@@ -19,7 +19,7 @@ python3 "$N1_ROOT/scripts/n1-reviewed-head.py" merge "$ID" "$REVIEW_REPO" "$CURR
 
 The helper verifies the current PR identity and head, current checks and review threads, repeats those checks immediately before the single `gh pr merge --match-head-commit` call, and returns `merged <sha>` only after GitHub confirms the merge. A failed command, API failure, drift, unresolved feedback, pending checks, pagination uncertainty, or still-open/enqueued PR stops with `escalated`; preserve pending evidence. Never use `--auto`, retry without head protection, or bypass protection. Continue to deploy and close only after `merged <sha>`.
 
-When unattended authority is absent, present the current PR, CI and review-thread results and prompt exactly: `Proceed with merge? (yes / no — fix first)`. On `no`, or any answer other than exact `yes`, return `open` and preserve the ticket and evidence. On exact `yes`, record `interactive approval: yes` in `overview.md`, set `N1_INTERACTIVE_APPROVED=yes`, and invoke the same helper with `interactive-merge`:
+When unattended authority is absent and `N1_HEADLESS=1`, return `escalated` without prompting or invoking interactive merge. Otherwise present the current PR, CI and review-thread results and prompt exactly: `Proceed with merge? (yes / no — fix first)`. On `no`, or any answer other than exact `yes`, return `open` and preserve the ticket and evidence. On exact `yes`, record `interactive approval: yes` in `overview.md`, set `N1_INTERACTIVE_APPROVED=yes`, and invoke the same helper with `interactive-merge`:
 
 ```bash
 source ~/.n1-codex/preamble.sh
@@ -32,7 +32,7 @@ The helper repeats all identity, head, checks and unresolved-review guards and c
 
 ## Step 2b: Local Merge (no-PR path, `prMode == "skip"` only)
 
-An unattended run stops here with `skipped`: there is no equivalent remote head protection. Only a separate explicit interactive approval permits the local path. Queue children and final queue PRs always stop.
+An unattended or headless run stops here with `skipped`: there is no equivalent remote head protection. Only a separate explicit interactive approval permits the local path. Queue children and final queue PRs always stop.
 
 1. **Worktree context:** if the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, resolve the main checkout (`MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")`) and run the default-branch git commands below from `$MAIN_CHECKOUT` — the default branch is checked out there, and `git checkout <defaultBranch>` inside the worktree fails with "already checked out". The clean-tree precondition then applies to the main checkout. Plain checkout: run everything from the current directory.
 2. **Preconditions:** `git status --porcelain` must be empty (dirty tree → "Commit or stash changes first." **STOP.**); the feature branch and `git.defaultBranch` must both exist locally.

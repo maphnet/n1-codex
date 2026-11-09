@@ -26,6 +26,7 @@ Before each external mutation call `intent <queue-id> <revision> <json-file>` wi
 
 Write a self-contained file naming ticket, queue, canonical repository, approved base and exact base tip, scope and acceptance evidence. For an integration queue the approved base is the persisted `integration_ref` at its pinned `integration_sha`; the child PR must target that branch exactly. Require the worker to:
 - Invoke N1 start for this ticket through PR and CI; never merge, modify the base or process another ticket.
+- Set and carry `N1_PR_BASE` to the approved base in this brief for review evidence and PR creation; stop if that base is uncertain.
 - Preserve others' work and native permissions; raise questions/access blockers through Orca. No Stop hook is assumed.
 - Persist actual outcome and PR URL/repository/branch/current head, workflow completion, applicable CI commit, expected provider check identities and every check's conclusion/source.
 - Call installed Orca worker_done with actual succeeded/failed/blocked outcome and evidence. Never turn failure into success; a PR URL or generic done marker is insufficient.

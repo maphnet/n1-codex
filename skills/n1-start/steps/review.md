@@ -1,5 +1,6 @@
 
-> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
+<!-- n1:step-snippet-exception: review evidence is recorded only after reviewer results -->
+> **After this step completes, continue immediately to the next step without a summary or yielding. (Orchestrator-only.)**
 
 ```bash
 source ~/.n1-codex/preamble.sh
@@ -14,6 +15,7 @@ TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
 REVIEW_HEAD=$(git rev-parse HEAD)
 REVIEW_BRANCH=$(git branch --show-current)
 REVIEW_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+REVIEW_BASE=${N1_PR_BASE:-$(n1_config_val '.git.defaultBranch')}
 test -z "$(git status --porcelain)" && test -n "$REVIEW_BRANCH" && test -n "${N1_RUN_ID:-}" || { echo 'Review requires a clean committed tree, branch and run identity' >&2; exit 1; }
 rm -f "$MEM/reviewed-head.json"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json"); XREPO_REVIEW_CONTEXT=""
@@ -79,7 +81,7 @@ No `[TQ-N]` Medium+ → skip. Else `n1_resolve_agent qa-engineer review`+split; 
 
 ```bash
 source ~/.n1-codex/preamble.sh
-n1_tree_verify "$TREE_BEFORE" && python3 "$N1_ROOT/scripts/n1-reviewed-head.py" record "$ID" "$REVIEW_REPO" "$REVIEW_BRANCH" "$N1_RUN_ID" "$REVIEW_HEAD" FULL pass <pass-or-not-required>
+n1_tree_verify "$TREE_BEFORE" && python3 "$N1_ROOT/scripts/n1-reviewed-head.py" record "$ID" "$REVIEW_REPO" "$REVIEW_BRANCH" "$N1_RUN_ID" "$REVIEW_HEAD" "$REVIEW_BASE" FULL pass <pass-or-not-required>
 ```
 
-Use `pass` for security only after its required lane passes; use `not-required` only when `SECURITY_RELEVANT` is false. Failure stops. Skipped, narrow, incremental, partial, failed or changed-tree reviews never produce evidence. Proceed.
+Use `pass` only after required security review passes; `not-required` only if `SECURITY_RELEVANT` is false. Failure stops. Skipped, narrow, incremental, partial, failed or changed-tree reviews produce no evidence.

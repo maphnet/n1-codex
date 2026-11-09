@@ -4,7 +4,8 @@
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
-DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+source ~/.n1-codex/preamble.sh
+DEFAULT_BRANCH=${N1_PR_BASE:-$(n1_config_val '.git.defaultBranch')}
 ```
 
 - On default branch → "Switch to a feature branch first." **STOP.**
