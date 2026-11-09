@@ -3,11 +3,9 @@
 
 ```bash
 source ~/.n1-codex/preamble.sh
-source "$N1_ROOT/lib/memory.sh"
 n1_step_begin "qa" 8
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
 [ -n "$SIGNAL_LINE" ] && { PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //'); n1_write_signals "$N1_HOME/memory/$ID/qa.md" $PAIRS; }
-n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summary,completed tasks,files changed,test results,decisions"
 n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md
 ```
 
@@ -23,7 +21,6 @@ qa.md missing/empty: write returned summary as fallback, `QA_DEGRADED=1`.
 
 ```bash
 source ~/.n1-codex/preamble.sh
-source "$N1_ROOT/lib/memory.sh"
 NEW_FUNC_UNTESTED=$(echo "${SIGNAL_LINE}" | grep -o 'new_functionality_untested=[^ ]*' | cut -d= -f2)
 BLOCK_UNTESTED=$(n1_config_val '.qa.blockUntestedFeatures' 'false')
 if ! grep -q "^### Evidence" "$N1_HOME/memory/$ID/qa.md" || [ "${QA_DEGRADED:-0}" = "1" ]; then

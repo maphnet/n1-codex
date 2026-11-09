@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
-# lib/testparse.sh — extract failing test names and zero-test detection from runner output.
-# Supported: pytest, jest/vitest, node:test (TAP), mocha, go test, n1 shell test convention. Framework auto-detected per line.
+# lib/testparse.sh — extract failing/passing test names and zero-test detection from runner output.
+# Supported: pytest, jest/vitest, node:test (TAP), mocha, go test, unittest (FAIL:/ERROR:), n1 shell test convention. Framework auto-detected per line.
 
 n1_testparse_strip_ansi() {
     sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' "$1"
 }
 
-# n1_testparse_failed_names <output_file>
+# n1_testparse_failed_names <output_file> [full]
 # Prints one failing test name per line. Empty output means no failures were recognized.
+# With "full", pytest lines print the whole node ID (path::Class::test) minus the [param] suffix, so
+# same-named tests in different files stay distinct; the default prints the bare test name.
 n1_testparse_failed_names() {
-    local f="$1"
+    local f="$1" full=0
+    [ "${2:-}" = full ] && full=1
     [ -f "$f" ] || return 0
-    n1_testparse_strip_ansi "$f" | awk '
+    n1_testparse_strip_ansi "$f" | awk -v full="$full" '
         # pytest: "FAILED path::test_name - msg"  or "FAILED path::Class::test_name"
         /^FAILED [^ ]+::/ {
-            s=$2; sub(/ .*/, "", s); n=split(s, parts, "::"); name=parts[n]; sub(/\[.*$/, "", name); print name; next
+            s=$2; sub(/ .*/, "", s); n=split(s, parts, "::"); sub(/\[.*$/, "", parts[n]); name=parts[n]
+            if (full) { name=parts[1]; for (i=2; i<=n; i++) name=name "::" parts[i] }
+            print name; next
         }
         # jest / vitest: "  ✕ test name (3 ms)"  or "  × test name"
         /^[[:space:]]*(✕|×) / {
@@ -33,9 +38,40 @@ n1_testparse_failed_names() {
         /^--- FAIL: / {
             name=$3; print name; next
         }
-        # n1 shell test convention: "FAIL: test name (expected=... actual=...)"
+        # n1 shell test convention: "FAIL: test name (expected=... actual=...)" or "FAIL: test name -- <detail>"
+        # (also unittest "FAIL: test_x (module.Class)"). The " -- " detail is cut first so the remaining name
+        # gets the same trailing-paren strip as its PASS line.
         /^FAIL: / {
-            line=$0; sub(/^FAIL: /, "", line); sub(/ \([^()]*\)[[:space:]]*$/, "", line); print line; next
+            line=$0; sub(/^FAIL: /, "", line); sub(/ -- .*$/, "", line); sub(/ \([^()]*\)[[:space:]]*$/, "", line); print line; next
+        }
+        # unittest error: "ERROR: test_x (module.Class)" or "(module.Class.test_x)". Anchored on the dotted-path
+        # paren group so generic "ERROR: <message>" log lines are not taken for test names.
+        # Import failures (unittest.loader._FailedTest) and class/module fixture errors are not test names:
+        # they stay inconclusive instead of becoming a never-red verdict.
+        /^ERROR: [^ ]+ \([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.]*\)( \([^()]*\))?[[:space:]]*$/ {
+            if ($3 ~ /^\(unittest\.loader\./ || $2 ~ /^(setUpClass|setUpModule|tearDownClass|tearDownModule)$/) next
+            print $2; next
+        }
+    ' | awk 'NF' | sort -u
+}
+
+# n1_testparse_passed_names <output_file>
+# Prints one passing test name per line for runners that print per-test PASS lines
+# (n1 shell "PASS: name", TAP "ok N - name", go -v "--- PASS: Name", jest/vitest/mocha "✓ name").
+# Empty output when the runner prints none (default pytest, jest summary-only, go without -v).
+n1_testparse_passed_names() {
+    local f="$1"
+    [ -f "$f" ] || return 0
+    n1_testparse_strip_ansi "$f" | awk '
+        /^[[:space:]]*(✓|√) / {
+            line=$0; sub(/^[[:space:]]*(✓|√) /, "", line); sub(/ \([0-9]+ ?ms\)[[:space:]]*$/, "", line); print line; next
+        }
+        /^[[:space:]]*ok [0-9]+ - / {
+            line=$0; sub(/^[[:space:]]*ok [0-9]+ - /, "", line); sub(/ #.*$/, "", line); print line; next
+        }
+        /^--- PASS: / { print $3; next }
+        /^PASS: / {
+            line=$0; sub(/^PASS: /, "", line); sub(/ \([^()]*\)[[:space:]]*$/, "", line); print line; next
         }
     ' | awk 'NF' | sort -u
 }
