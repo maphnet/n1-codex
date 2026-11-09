@@ -10,9 +10,10 @@ Resolve the shared state and install the native Codex persona profiles:
 source ~/.n1-codex/preamble.sh
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
 python3 "$N1_ROOT/scripts/install-agents.py" "$PROJECT_ROOT"
+python3 "$N1_ROOT/scripts/install-codex-hooks.py"
 ```
 
-Report the generated `.codex/agents/n1-*.toml` profiles and tell the user to restart Codex to load them. Do this even when shared N1 configuration already exists. Do not edit global Codex configuration or any Claude settings.
+Report the generated `.codex/agents/n1-*.toml` profiles and stable user hooks, and tell the user to restart Codex to load them. Do this even when shared N1 configuration already exists. The hook installer is the one deliberate global Codex update: it only updates `~/.codex/hooks.json` and `~/.n1-codex/hooks/`; preserve all unrelated hooks and never edit Claude settings.
 
 ## Existing Configuration
 

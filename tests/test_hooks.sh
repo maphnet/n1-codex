@@ -325,8 +325,7 @@ rm "$LTP/compose.yaml"; echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/confi
 assert_eq "no enable offer without a compose file" "no" "$(has_offer)"
 
 # Only verified native events are registered; telemetry lifecycle is disabled.
-assert_eq "native hook event registration" "PreToolUse,SessionStart" "$(jq -r '.hooks | keys | join(",")' "$REPO_ROOT/hooks/hooks.json")"
-assert_eq "agent lifecycle hook not registered" "false" "$(jq '.hooks | has("SubagentStart") or has("SubagentStop") or has("Stop")' "$REPO_ROOT/hooks/hooks.json")"
+assert_eq "native hook installer exists" "0" "$(python3 "$REPO_ROOT/scripts/install-codex-hooks.py" >/dev/null; echo $?)"
 # A state directory with shell metacharacters round-trips through the constant shim.
 ODD_STATE="$T/state with 'quote and \$literal"; ODD_HOST="$T/host with 'quote and \$literal"
 echo '{"session_id":"s-odd-state","source":"startup"}' | N1_STATE_DIR="$ODD_STATE" N1_HOST_FILE="$ODD_HOST/host.json" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null

@@ -73,6 +73,34 @@ class Bootstrap(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertEqual(target.read_text(), 'CLAUDE HOOK')
 
+    def test_hook_installation_is_stable_across_plugin_versions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            (home / '.codex').mkdir()
+            (home / '.codex/hooks.json').write_text(json.dumps({'hooks': {
+                'UserPromptSubmit': [{'hooks': [{'type': 'command', 'command': 'echo keep'}]}]
+            }}))
+            env = {**os.environ, 'HOME': temp}
+            result = subprocess.run(['python3', str(ROOT / 'scripts/install-codex-hooks.py')],
+                                    text=True, capture_output=True, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            config = json.loads((home / '.codex/hooks.json').read_text())
+            self.assertEqual(config['hooks']['UserPromptSubmit'][0]['hooks'][0]['command'], 'echo keep')
+            self.assertEqual(len(config['hooks']['SessionStart']), 1)
+            self.assertEqual(len(config['hooks']['PreToolUse']), 1)
+            first = (home / '.n1-codex/hooks/dispatch.sh').read_text()
+            subprocess.run(['python3', str(ROOT / 'scripts/install-codex-hooks.py')], check=True, env=env)
+            self.assertEqual(first, (home / '.n1-codex/hooks/dispatch.sh').read_text())
+
+            cache = home / '.codex/plugins/cache/n1-codex/n1-codex/0.1.5/hooks'
+            cache.mkdir(parents=True)
+            (cache / 'session-start.sh').write_text('#!/usr/bin/env bash\nprintf "newest\\n"\n')
+            (cache / 'session-start.sh').chmod(0o755)
+            dispatch = subprocess.run([str(home / '.n1-codex/hooks/dispatch.sh'), 'session-start'],
+                                      text=True, capture_output=True, env=env)
+            self.assertEqual(dispatch.returncode, 0)
+            self.assertEqual(dispatch.stdout, 'newest\n')
+
     def test_queue_exposes_explicit_supervised_lifecycle(self):
         skill = (ROOT / 'skills/n1-queue/SKILL.md').read_text()
         for command in ('n1-queue <ticket-id>...', '--status <queue-id>',

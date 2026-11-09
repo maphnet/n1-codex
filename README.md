@@ -21,8 +21,9 @@ codex plugin marketplace add maphnet/n1-codex --ref main
 codex plugin add n1-codex@n1-codex
 ```
 
-Start a new session. Review and trust the plugin's hooks with `/hooks`; installation
-alone does not trust hooks. Invoke the `n1-init` skill from **n1-codex**, especially
+Start a new session. Invoke the `n1-init` skill from **n1-codex**. It installs stable
+user-level hook declarations so plugin version updates do not invalidate hook trust;
+the first setup may still require one `/hooks` approval. Use **n1-codex** explicitly
 if the older `n1` plugin is also installed. Initialization installs project-local
 `.codex/agents/n1-*.toml` profiles; restart Codex to load them.
 

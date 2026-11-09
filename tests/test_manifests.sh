@@ -4,7 +4,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
 [ ! -e plugin.json ] || { echo "FAIL: root plugin.json disables Codex hook loading"; FAIL=1; }
-for f in .codex-plugin/plugin.json .agents/plugins/marketplace.json hooks/hooks.json; do
+for f in .codex-plugin/plugin.json .agents/plugins/marketplace.json; do
     [ -f "$f" ] || { echo "FAIL: missing $f"; FAIL=1; continue; }
     jq -e . "$f" >/dev/null 2>&1 || { echo "FAIL: invalid JSON $f"; FAIL=1; }
 done
