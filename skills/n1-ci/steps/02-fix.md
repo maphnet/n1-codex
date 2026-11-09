@@ -128,6 +128,7 @@ Works without N1 pipeline memory. Skip pipeline memory reads and updates when ab
 Only after all required lanes pass and the tree remains frozen, set `EVIDENCE_ID`, `REVIEW_REPO`, `REVIEW_BRANCH`, `REVIEW_HEAD`, `REVIEW_BASE`, `PR_NUMBER`, and `SECURITY_VERDICT` (`pass` or `not-required`) from the captured context. Verify the frozen tree again, then execute:
 
 ```bash
+source ~/.n1-codex/preamble.sh
 python3 "$N1_ROOT/scripts/n1-reviewed-head.py" record "$EVIDENCE_ID" "$REVIEW_REPO" "$REVIEW_BRANCH" "$N1_RUN_ID" "$REVIEW_HEAD" "$REVIEW_BASE" FULL pass "$SECURITY_VERDICT" &&
 git push origin "$REVIEW_BRANCH" &&
 python3 "$N1_ROOT/scripts/n1-reviewed-head.py" attach "$EVIDENCE_ID" "$REVIEW_REPO" "$REVIEW_BRANCH" "$N1_RUN_ID" "$PR_NUMBER"
