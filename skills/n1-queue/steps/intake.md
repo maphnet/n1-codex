@@ -10,8 +10,15 @@ For an integration queue, the coordinator must also pass `--grant <json-file>`.
 The grant records the canonical repository and origin, the independently verified
 default branch, one explicit non-default `integration_ref`, and an approval with
 `scope: integration-only`. The target is fetched and its exact tip is persisted
-as `integration_sha`; a missing or ambiguous grant pauses intake. A configuration
-hint or branch naming convention never grants permission.
+as `integration_sha`. If the approved target does not exist, intake persists a
+create-only setup intent pinned to the verified default tip; the coordinator
+must perform only a create-only push with an empty expected old value (for
+example, `git push --force-with-lease=refs/heads/<target>: origin <default-sha>:refs/heads/<target>`),
+re-fetch the exact branch, and reconcile a receipt proving that exact branch was
+created before selection. Any existing target or ambiguous result retains the
+intent and pauses the queue.
+A missing or ambiguous grant pauses intake. A configuration hint or branch naming
+convention never grants permission.
 Never reset or overwrite a queue. State lives at `$N1_HOME/queue/<queue-id>/state.json`; access it through bounded helpers, never direct edits.
 
 Before every selection, including after resume, refresh every pending/blocked ticket's tracker proof. Fetch the target base without checkout or base mutation, pin its SHA, independently establish each blocker's verified merged commit, and verify ancestry with `git merge-base --is-ancestor <merged-sha> <base-sha>`. A completed PR or done tracker status alone is insufficient. Write JSON using file tools, never shell interpolation of tracker text, then persist:

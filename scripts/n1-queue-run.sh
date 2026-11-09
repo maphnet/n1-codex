@@ -38,6 +38,14 @@ def git(repo, *args):
     return result.stdout.strip()
 
 
+def remote_ref(repo, ref):
+    result = subprocess.run(['git', '-C', repo, 'ls-remote', 'origin', ref],
+                            capture_output=True, text=True, timeout=60)
+    require(result.returncode in (0, 2), 'Unable to inspect remote ref')
+    fields = result.stdout.split()
+    return fields[0] if fields else None
+
+
 def origin_identity(repo):
     """Return the provider's canonical host/path identity for this checkout."""
     remote = git(repo, 'config', '--get', 'remote.origin.url')
@@ -94,7 +102,10 @@ def validate(state, queue):
         require(key in state, 'Missing queue target identity')
     if state['integration_ref'] is not None:
         require(isinstance(state['integration_ref'], str) and isinstance(state['origin_repo'], str)
-                and SHA.fullmatch(state['integration_sha']), 'Invalid integration target')
+                and ((isinstance(state['integration_sha'], str) and SHA.fullmatch(state['integration_sha']))
+                     or (state['integration_sha'] is None
+                         and (state.get('intent') or {}).get('operation') == 'integration-branch-setup')),
+                'Invalid integration target')
     require(type(state.get('revision')) is int and state['revision'] >= 0
             and state.get('status') in STATUSES, 'Invalid queue revision or status')
     require(isinstance(state.get('tickets'), list) and state['tickets'], 'Invalid tickets')
@@ -215,9 +226,13 @@ def assigned(state):
 
 
 def pause(state, reason):
-    ticket = assigned(state)
-    ticket['status'] = state['status'] = 'paused'
-    event(state, ticket['ticket'], 'paused', reason)
+    if state.get('intent', {}).get('ticket'):
+        ticket = assigned(state)
+        ticket['status'] = state['status'] = 'paused'
+        event(state, ticket['ticket'], 'paused', reason)
+    else:
+        state['status'] = 'paused'
+        event(state, None, 'paused', reason)
 
 
 def launch_intent(state, payload):
@@ -292,7 +307,6 @@ def launch_intent(state, payload):
 
 
 def record_receipt(state, payload):
-    ticket = assigned(state)
     intent = state['intent']
     require(intent['operation'] not in {'selection', 'recorded'}
             and payload.get('request_id') == intent['request_id'], 'Receipt intent mismatch')
@@ -303,8 +317,29 @@ def record_receipt(state, payload):
     require(isinstance(identity, dict) and set(identity) <= {
         'run_id', 'task_id', 'dispatch_id', 'workspace', 'branch', 'repo', 'ticket',
         'terminal', 'terminal_id', 'ref', 'head_sha', 'base_sha', 'merge_commit',
-        'integration_sha'}, 'Invalid receipt identity')
+        'integration_sha', 'old_sha'}, 'Invalid receipt identity')
     operation = intent['operation']
+    if operation == 'integration-branch-setup':
+        remote_current = remote_ref(state['repo'], 'refs/heads/' + state['integration_ref'])
+        valid = (payload.get('verified') is True
+                 and identity.get('repo') == state.get('origin_repo')
+                 and identity.get('ref') == state.get('integration_ref')
+                 and identity.get('old_sha') in (None, '')
+                 and identity.get('head_sha') == intent.get('default_sha')
+                 and identity.get('integration_sha') == intent.get('default_sha')
+                 and remote_current == intent.get('default_sha'))
+        if not valid:
+            pause(state, 'Integration branch setup receipt is missing or ambiguous')
+            return
+        state['integration_sha'] = identity['integration_sha']
+        state['base_sha'] = identity['integration_sha']
+        state['intent'] = None
+        state['receipt'] = payload['receipt']
+        state['status'] = 'pending'
+        event(state, None, 'succeeded', 'Coordinator verified create-only integration branch setup',
+              integration_ref=state['integration_ref'], integration_sha=state['integration_sha'])
+        return
+    ticket = assigned(state)
     keys = {'run-create': ('run_id',), 'task-create': ('task_id',),
             'worker-start': ('dispatch_id', 'workspace', 'branch'), 'reference-add': (),
             'integration-merge': ('merge_commit',)}[operation]
@@ -367,7 +402,7 @@ def stop(state, payload):
     require(isinstance(payload.get('reason'), str) and payload['reason'].strip(),
             'Stop requires a reason')
     require(not state.get('stop'), 'Stop already requested; reconcile its result')
-    ticket = assigned(state) if state['intent'] else None
+    ticket = assigned(state) if (state.get('intent') or {}).get('ticket') else None
     dispatch = ticket.get('dispatch_id') if ticket else None
     state['stop'] = {'reason': payload['reason'], 'dispatch_id': dispatch}
     state['status'] = 'paused' if state['intent'] else 'stopped'
@@ -403,13 +438,17 @@ def resume(state, payload):
     state['evidence'].append({**payload, 'kind': 'resume'})
     intent = state['intent']
     if intent:
-        ticket = assigned(state)
+        ticket = assigned(state) if intent.get('ticket') else None
         if state.get('stop', {}).get('settled') is True:
-            ticket['status'] = 'stopped'
+            if ticket:
+                ticket['status'] = 'stopped'
             state['intent'] = None
         elif intent['operation'] == 'selection':
             ticket['status'] = 'pending'
             state['intent'] = None
+        elif intent['operation'] == 'integration-branch-setup':
+            pause(state, 'Reconcile the persisted integration branch setup receipt before resuming')
+            return
         elif intent['operation'] != 'recorded':
             pause(state, 'Reconcile the persisted mutation receipt before resuming')
             return
@@ -435,7 +474,7 @@ def resume(state, payload):
     for ticket in state['tickets']:
         if ticket['status'] in {'pending', 'blocked'} and ticket['blocker_snapshot']:
             ticket['blocker_snapshot']['lookup'] = 'unknown'
-    event(state, intent['ticket'] if intent else None, 'resumed', payload['reason'])
+    event(state, intent.get('ticket') if intent else None, 'resumed', payload['reason'])
 
 
 def completion(state, payload):
@@ -555,13 +594,17 @@ def main():
             integration_ref = branch_name(grant.get('integration_ref'))
             require(integration_ref != base, 'Integration target cannot be the default branch')
             git(repo, 'check-ref-format', '--branch', integration_ref)
-            remote_default = git(repo, 'ls-remote', '--exit-code', 'origin', 'refs/heads/' + base).split()
-            require(remote_default and SHA.fullmatch(remote_default[0]), 'Default branch is unavailable')
+            default_sha = remote_ref(repo, 'refs/heads/' + base)
+            require(default_sha and SHA.fullmatch(default_sha), 'Default branch is unavailable')
             target = 'refs/heads/' + integration_ref
             tracking = 'refs/remotes/origin/' + integration_ref
-            git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', 'origin', '+' + target + ':' + tracking)
-            integration_sha = git(repo, 'rev-parse', '--verify', tracking + '^{commit}')
-            require(SHA.fullmatch(integration_sha), 'Integration target tip is unavailable')
+            existing_sha = remote_ref(repo, target)
+            if existing_sha:
+                require(SHA.fullmatch(existing_sha), 'Integration target tip is unavailable')
+                git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', 'origin', '+' + target + ':' + tracking)
+                integration_sha = git(repo, 'rev-parse', '--verify', tracking + '^{commit}')
+            else:
+                integration_sha = None
         directory.mkdir(parents=True, exist_ok=True)
     else:
         require(directory.is_dir(), 'Queue not found')
@@ -570,12 +613,20 @@ def main():
         path = directory / 'state.json'
         if command == 'init':
             require(not path.exists(), 'Queue already exists; never reset persisted state')
+            setup_intent = None
+            if integration_ref is not None and integration_sha is None:
+                setup_intent = {'operation': 'integration-branch-setup',
+                                'request_id': 'integration-branch-setup',
+                                'repo': origin, 'integration_ref': integration_ref,
+                                'default_sha': default_sha, 'expected_old_sha': None,
+                                'create_only': True}
             state = {'version': 1, 'queue_id': queue, 'repo': repo,
                      'base_ref': integration_ref or base,
                      'default_ref': default_ref, 'integration_ref': integration_ref,
                      'origin_repo': origin, 'integration_sha': integration_sha,
-                     'base_sha': integration_sha, 'revision': 0, 'status': 'pending', 'run_id': None,
-                     'intent': None, 'receipt': None, 'evidence': [], 'events': [],
+                     'base_sha': integration_sha or (setup_intent or {}).get('default_sha'),
+                     'revision': 0, 'status': 'pending', 'run_id': None,
+                     'intent': setup_intent, 'receipt': None, 'evidence': [], 'events': [],
                      'tickets': [{'ticket': ticket, 'status': 'pending', 'blocker_snapshot': None}
                                  for ticket in tickets]}
             event(state, None, 'initialized', 'Explicit ordered ticket list')

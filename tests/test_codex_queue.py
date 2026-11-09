@@ -51,6 +51,49 @@ class Queue(unittest.TestCase):
             'approval': {'source': 'NC-2 approval', 'scope': 'integration-only'}}))
         return self.call('init', 'queue-1', self.repo, 'main', '--grant', grant, *tickets)
 
+    def test_missing_integration_target_persists_create_only_setup_until_reconciled(self):
+        grant = self.root / 'grant.json'
+        grant.write_text(json.dumps({
+            'repo': str(self.repo), 'origin': 'example.test/owner/repo',
+            'default_ref': 'main', 'integration_ref': 'integration/NC-2',
+            'approval': {'source': 'NC-2 approval', 'scope': 'integration-only'}}))
+        state = self.call('init', 'queue-1', self.repo, 'main', '--grant', grant, 'NC-1')
+        self.assertEqual(state['intent']['operation'], 'integration-branch-setup')
+        self.assertTrue(state['intent']['create_only'])
+        self.assertIsNone(state['integration_sha'])
+        self.git('push', '-q', 'origin', 'HEAD:integration/NC-2')
+        receipt = {'request_id': 'integration-branch-setup',
+                   'receipt': {'ref': 'integration/NC-2', 'created': True},
+                   'verified': True,
+                   'identity': {'repo': 'example.test/owner/repo',
+                                'ref': 'integration/NC-2', 'head_sha': self.sha,
+                                'integration_sha': self.sha}}
+        path = self.root / 'receipt.json'
+        path.write_text(json.dumps(receipt))
+        state = self.call('receipt', 'queue-1', state['revision'], path)
+        self.assertIsNone(state['intent'])
+        self.assertEqual(state['integration_sha'], self.sha)
+
+    def test_ambiguous_create_only_receipt_stays_paused_on_resume(self):
+        grant = self.root / 'grant.json'
+        grant.write_text(json.dumps({
+            'repo': str(self.repo), 'origin': 'example.test/owner/repo',
+            'default_ref': 'main', 'integration_ref': 'integration/NC-2',
+            'approval': {'source': 'NC-2 approval', 'scope': 'integration-only'}}))
+        state = self.call('init', 'queue-1', self.repo, 'main', '--grant', grant, 'NC-1')
+        self.git('push', '-q', 'origin', 'HEAD:integration/NC-2')
+        receipt = {'request_id': 'integration-branch-setup',
+                   'receipt': {'ref': 'integration/NC-2'}, 'verified': False}
+        path = self.root / 'receipt.json'
+        path.write_text(json.dumps(receipt))
+        state = self.call('receipt', 'queue-1', state['revision'], path)
+        self.assertEqual(state['status'], 'paused')
+        resume = self.root / 'resume.json'
+        resume.write_text(json.dumps({'reason': 'inspect setup receipt'}))
+        state = self.call('resume', 'queue-1', state['revision'], resume)
+        self.assertEqual(state['status'], 'paused')
+        self.assertEqual(state['intent']['operation'], 'integration-branch-setup')
+
     def transition(self, revision, payload, ok=True):
         path = self.root / ('change-' + str(revision) + '.json')
         path.write_text(json.dumps(payload))

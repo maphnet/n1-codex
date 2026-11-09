@@ -30,4 +30,4 @@ Report each actual outcome, PR/head/check evidence, blockers and exact next acti
 
 An integration queue reports each verified child merge separately, including the authorized integration ref, merge commit and refreshed tip. After every integration-tip change, reconcile one queue-level PR from that integration ref to the persisted default ref. Reuse it only when repository, head, base and current integration tip match; otherwise record a pending final-PR action for the coordinator. Leave this PR open for human review. A missing or uncertain create/update receipt pauses the queue action and never authorizes a default-branch merge, push, tag, release or deployment.
 
-Queue processing never merges the final PR.
+Workers never merge. The coordinator may merge only a verified child PR into the persisted integration ref; it never merges, pushes, tags, releases, deploys, or closes the final integration-to-default PR.

@@ -6,6 +6,12 @@ Load installed `orca skills get orchestration` and its coordinator-loop/recovery
 
 Read `n1_queue_state status <queue-id>`. Paused/stopped queues follow report.md. Otherwise refresh proofs per intake.md and call `select <queue-id>`. In integration mode, selection fetches and pins the persisted `integration_ref`; a changed tip invalidates blocker proofs until refreshed. No selection means report reasons and yield. Selection already persists a reservation.
 
+If intake left an `integration-branch-setup` intent, do not select or assign a
+ticket. Reconcile the create-only push first; its receipt must identify the
+canonical repository, exact approved ref, pinned default head, and re-fetched
+target tip. A missing, conflicting, or ambiguous receipt remains paused and is
+never retried blindly.
+
 Before each external mutation call `intent <queue-id> <revision> <json-file>` with operation, ticket and unique request_id. After the external action call `receipt <queue-id> <revision> <json-file>` before another mutation. Failed intent persistence prohibits the action. Persist failed/ambiguous receipts with verified false and pause. Timeout never authorizes another start, Run, Task or workspace.
 
 1. Without a Run, persist run-create intent; execute `orca orchestration run-create --objective <objective> --json`; persist receipt and independently established run_id.
