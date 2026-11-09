@@ -6,6 +6,16 @@ trap 'rm -rf "$T"' EXIT
 export N1_HOME="$T/project" N1_STATE_DIR="$T/state"
 source "$ROOT/lib/telemetry.sh"
 
+n1_run_identity
+test -n "$N1_RUN_ID"
+ID=NP-OFF
+source "$ROOT/lib/step.sh"
+n1_step_begin review 9
+n1_step_end review 9 success
+n1_emit_question_event "$N1_RUN_ID" x "$ID" "$(n1_telemetry_dir "$ID")" review x x
+test ! -e "$N1_HOME/codex/telemetry"
+echo 'PASS: run identity without telemetry IO'
+
 # n1_host is constant and the default worktree root is Codex-native.
 RES=$(env -u N1_HOST -u CODEX_PLUGIN_ROOT -u N1_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT bash -c "source '$ROOT/lib/host.sh'; n1_host; echo; n1_worktree_root")
 test "$(printf '%s' "$RES" | sed -n '1p')" = "codex"

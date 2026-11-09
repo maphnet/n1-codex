@@ -171,6 +171,7 @@ gate() {
 test_gates_unchanged() {
     local base with
     for base in '{}' \
+        '{"autonomy":{"fullAuto":true},"finishWork":{"mergeOnFinish":true}}' \
         '{"finishWork":{"enabled":true,"mergeOnFinish":true}}' \
         '{"git":{"prMode":"skip"},"finishWork":{"enabled":true,"mergeOnFinish":true},"queue":{"mergeOnFinish":true}}' \
         '{"git":{"prMode":"ready"},"finishWork":{"enabled":false}}'; do

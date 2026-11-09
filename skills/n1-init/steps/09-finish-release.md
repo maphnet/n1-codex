@@ -2,35 +2,9 @@
 
 ## Finish Work Configuration
 
-Ask whether N1 should run a finish step after CI: verify/perform the PR merge, optionally watch the deployment, and close the tracker ticket. **Default is No.**
+Automatic finish and merge authority are configured separately in step 10. Configure the remaining finish options here without changing either grant or legacy keys.
 
-Only ask when a tracker is configured — without one, finish work has nothing useful to do beyond merge verification; write `"finishWork": { "enabled": false }` silently.
-
-```
-Enable the finish step in the automated pipeline?
-After CI passes, N1 can verify the PR merge, watch the deployment, and close the ticket.
-1 — Yes
-2 — No (default)
-```
-
-**If 2 (No) or default:**
-```json
-{
-  "finishWork": {
-    "enabled": false
-  }
-}
-```
-
-**If 1 (Yes)**, ask the follow-ups:
-
-```
-Auto-merge the PR on finish?
-1 — No, a reviewer merges (default)
-2 — Yes, N1 merges via gh pr merge --auto (branch protection still applies)
-```
-
-If auto-merge is Yes:
+Ask:
 ```
 Merge method?
 1 — squash (default)
@@ -47,13 +21,11 @@ Requires a GitHub Actions workflow triggered by pushes to the default branch.
 
 If deploy watch is Yes: "Workflow name to watch? (enter = watch all runs on the merge commit)"
 
-Write the block (omit `deployWatch.workflowName` when empty; `closeTicket` defaults to true — no question):
+For a new configuration write the following options (omit `deployWatch.workflowName` when empty; `closeTicket` defaults to true — no question):
 ```json
 {
   "finishWork": {
-    "enabled": true,
-    "mergeOnFinish": "<from auto-merge question>",
-    "mergeMethod": "<from merge-method question, \"squash\" when not asked>",
+    "mergeMethod": "<from merge-method question>",
     "deployWatch": {
       "enabled": "<from deploy-watch question>",
       "workflowName": "<name or null>",
@@ -67,22 +39,7 @@ Write the block (omit `deployWatch.workflowName` when empty; `closeTicket` defau
 
 ### On reconfiguration (n1-init re-run):
 
-If `finishWork` already exists in the current config, show current state and offer:
-```
-Current finish work:
-  enabled       → <true/false>
-  mergeOnFinish → <true/false>
-  deployWatch   → <true/false>
-
-1 — Keep current
-2 — Enable / change settings (re-ask the questions above)
-3 — Disable
-```
-- **1** → leave unchanged.
-- **2** → re-run the questions, overwrite the block.
-- **3** → set `enabled: false`, keep the other keys.
-
-If `finishWork` is absent from the current config, run the fresh-setup flow above.
+If `finishWork` already exists, show the current merge method and deploy watch settings and offer to keep or change them. Merge only the selected settings into the existing block, preserving all other keys.
 
 ## Delivery (SSH deploy)
 

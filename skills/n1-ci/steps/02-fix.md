@@ -62,7 +62,7 @@ For each failed check (name, category, run ID):
 
 For "unknown" category checks: include a confidence assessment (0.0-1.0).
 
-Commit all fixes with descriptive messages. Push to the PR branch after committing.
+Commit all fixes with descriptive messages. Do not push; the full native review must run first.
 
 Output format:
 ## CI Fixes Applied
@@ -80,11 +80,11 @@ Output format:
 **After developer returns:**
 1. Handle `unknown` fixes below threshold (Step 5b flow)
 2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`.
-3. Push if developer didn't: `git push`
+3. For pipeline runs rerun `n1-start/steps/review.md` at FULL scope on the final clean committed head. For standalone runs without pipeline memory, use the standalone review contract below. Any failure returns `escalated` without pushing. After a passing review has recorded evidence, `git push`, then atomically attach using `n1-reviewed-head.py attach`; failure returns `escalated`.
 4. ```bash
    source ~/.n1-codex/preamble.sh
    source "$N1_ROOT/lib/frontmatter.sh"
-   n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "ci_fix_cycle"
+   [ ! -f "$N1_HOME/memory/$ID/overview.md" ] || n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "ci_fix_cycle"
    ```
 5. `ci_fix_cycle` < `maxFixAttempts` → back to **Step 3** (in 01-monitor.md)
 6. `ci_fix_cycle` >= `maxFixAttempts` → **Step 6b**
@@ -97,6 +97,8 @@ Present remaining failures and fix history, then offer:
 3. Fix manually → wait for "continue", back to Step 3 (reset counter)
 
 ## Step 7: Report & Memory Update
+
+Return exactly one state and a reason to the caller: `passed`, `no-checks`, `disabled`, `failed`, or `escalated`. Remaining red checks, including an explicit skip, are `failed`; unresolved, inaccessible, unknown, or timed-out checks are `escalated`. Persist `ci_state` when memory exists. Standalone CI returns to its caller and never invokes finish.
 
 ### Update overview.md (if memory exists):
 ```markdown
@@ -121,7 +123,17 @@ Still failing:
 
 ## Standalone Usage
 
-Works without N1 memory — developer uses only diff and logs. Skip memory reads/updates when `$N1_HOME/memory/` absent.
+Works without N1 pipeline memory. Skip pipeline memory reads and updates when absent. After the developer commits, obtain the PR's repository, number, head branch, base branch and remote head from GitHub; require an open same-repository PR and a clean local branch at the fix commit. Generate a fresh `N1_RUN_ID` with `n1_run_identity` (source `lib/telemetry.sh`); use a safe unique evidence ID such as `CI-<PR number>-<run id>`. Capture local HEAD and tree, and the full PR diff from `git merge-base origin/<base> HEAD` through HEAD. Run the native `code-reviewer` at FULL scope with that diff, PR identity, base and head, and run `security-reviewer` when the diff is security-relevant per `n1-start/review-core.md` (bias to required when uncertain). Apply configured gate rules. Wait for all required reviewers; any failure, partial result, pending TQ fix, or tree/head change returns `escalated` without pushing. Do not create a fabricated `implementation.md`.
+
+Only after all required lanes pass and the tree remains frozen, set `EVIDENCE_ID`, `REVIEW_REPO`, `REVIEW_BRANCH`, `REVIEW_HEAD`, `REVIEW_BASE`, `PR_NUMBER`, and `SECURITY_VERDICT` (`pass` or `not-required`) from the captured context. Verify the frozen tree again, then execute:
+
+```bash
+python3 "$N1_ROOT/scripts/n1-reviewed-head.py" record "$EVIDENCE_ID" "$REVIEW_REPO" "$REVIEW_BRANCH" "$N1_RUN_ID" "$REVIEW_HEAD" "$REVIEW_BASE" FULL pass "$SECURITY_VERDICT" &&
+git push origin "$REVIEW_BRANCH" &&
+python3 "$N1_ROOT/scripts/n1-reviewed-head.py" attach "$EVIDENCE_ID" "$REVIEW_REPO" "$REVIEW_BRANCH" "$N1_RUN_ID" "$PR_NUMBER"
+```
+
+Any failure returns `escalated`. This evidence lives under the unique evidence ID, not a pipeline ticket. A standalone CI run returns to its caller and does not invoke finish.
 
 ## Integration
 

@@ -4,7 +4,8 @@
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
-DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+source ~/.n1-codex/preamble.sh
+DEFAULT_BRANCH=${N1_PR_BASE:-$(n1_config_val '.git.defaultBranch')}
 ```
 
 - On default branch → "Switch to a feature branch first." **STOP.**
@@ -110,3 +111,4 @@ Returns structured PR title and body.
 **Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, skip the prompt — create PR as composed, append Decision Ledger row (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass.
 
 Otherwise: present title/body, ask **"Create PR with this content? (yes/edit/cancel)"**
+After documentation commits, compare HEAD to the current run's `reviewed-head.json`. If missing or stale, rerun the full native review core in `n1-start/steps/review.md` on the clean committed HEAD (all required lanes, no incremental scope), or stop safely. Do not treat an old report as approval of a new commit.

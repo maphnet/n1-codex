@@ -1,5 +1,6 @@
 
-> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
+<!-- n1:step-snippet-exception: review evidence is recorded only after reviewer results -->
+> **After this step completes, continue immediately to the next step without a summary or yielding. (Orchestrator-only.)**
 
 ```bash
 source ~/.n1-codex/preamble.sh
@@ -11,6 +12,12 @@ MEM="$N1_HOME/memory/$ID"
 { echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
 { echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"
 TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
+REVIEW_HEAD=$(git rev-parse HEAD)
+REVIEW_BRANCH=$(git branch --show-current)
+REVIEW_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+REVIEW_BASE=${N1_PR_BASE:-$(n1_config_val '.git.defaultBranch')}
+test -z "$(git status --porcelain)" && test -n "$REVIEW_BRANCH" && test -n "${N1_RUN_ID:-}" || { echo 'Review requires a clean committed tree, branch and run identity' >&2; exit 1; }
+rm -f "$MEM/reviewed-head.json"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json"); XREPO_REVIEW_CONTEXT=""
 if [ "$RELATED_ENABLED" = "true" ]; then
     XREPO_REGISTERED=$(while IFS=$'\t' read -r slug reason _; do [ -z "$slug" ] && continue; printf '\n- %s (%s)' "$slug" "$reason"; done < <(n1_related_projects "$N1_HOME/config.json"))
@@ -70,4 +77,11 @@ No `[TQ-N]` Medium+ → skip. Else `n1_resolve_agent qa-engineer review`+split; 
 
 **FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
 
-**PASS:** proceed.
+**PASS:** Only after the full-scope code review and every required security review pass, with no pending TQ fixes, verify the frozen tree and HEAD again. For `REVIEW_TIER=FULL` and `INCREMENTAL=false`, atomically record the captured head (never substitute a later HEAD):
+
+```bash
+source ~/.n1-codex/preamble.sh
+n1_tree_verify "$TREE_BEFORE" && python3 "$N1_ROOT/scripts/n1-reviewed-head.py" record "$ID" "$REVIEW_REPO" "$REVIEW_BRANCH" "$N1_RUN_ID" "$REVIEW_HEAD" "$REVIEW_BASE" FULL pass <pass-or-not-required>
+```
+
+Use `pass` only after required security review passes; `not-required` only if `SECURITY_RELEVANT` is false. Failure stops. Skipped, narrow, incremental, partial, failed or changed-tree reviews produce no evidence.

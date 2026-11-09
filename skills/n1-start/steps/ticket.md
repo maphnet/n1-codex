@@ -59,5 +59,5 @@ source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/telemetry.sh"
 CFG_TIER=$(n1_config_val '.testCoverage.tier' "${N1_HOME}/config.json"); EST=$(n1_config_val '.estimation.enabled' "${N1_HOME}/config.json")
 LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json"); PR=$(n1_config_val '.planReview.reviewPlan' "${N1_HOME}/config.json")
-echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"'"${CFG_TIER:-maintain}"'","estimation_enabled":'"${EST:-false}"',"local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":'"${PR:-true}"'}}' >> "$(n1_telemetry_dir "$ID")/raw/steps/$N1_RUN_ID.jsonl"
+[ "${N1_TELEMETRY_DISABLED:-}" = 1 ] || echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"'"${CFG_TIER:-maintain}"'","estimation_enabled":'"${EST:-false}"',"local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":'"${PR:-true}"'}}' >> "$(n1_telemetry_dir "$ID")/raw/steps/$N1_RUN_ID.jsonl"
 ```

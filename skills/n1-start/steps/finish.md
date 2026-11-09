@@ -1,19 +1,5 @@
+**Finish decision.** Start is the sole owner of this decision. Invoke n1:n1-finish at most once, only for an open created PR, when `n1_finish_enabled` succeeds and `ci_state` is `passed|no-checks|disabled`. The helper requires the explicit JSON boolean `autonomy.fullAuto` and denies queue children; legacy `finishWork.enabled` and `queue.mergeOnFinish` grant no authority. Record the gate decision and reason.
 
-**Finish gate.** `n1_finish_enabled` decides.
+For a skipped PR, never automatically local merge: set `finish_state: skipped` and record `PR skipped`. If the helper denies, set `finish_state: skipped` and record the denied grant. If CI is failed or escalated, do not invoke finish; set `finish_state` to the corresponding state and record the CI reason. Continue to finalization in every case.
 
-```bash
-source ~/.n1-codex/preamble.sh
-if n1_finish_enabled; then GATE_ENABLED=true; else GATE_ENABLED=false; fi
-n1_record_decision finish-gate "$GATE_ENABLED" '{"config":"n1_finish_enabled"}' "enabled=${GATE_ENABLED}"
-echo "finish-gate:${GATE_ENABLED}"
-```
-
-> Queue: `queue.mergeOnFinish` (a hook also blocks its merge commands). Interactive: `finishWork.enabled`.
-
-**If `finish-gate:false`:** skip to FINALIZE MEMORY.
-
-With `prMode: "skip"`, n1-finish takes the local-merge path.
-
-**REQUIRED SUB-SKILL:** Use n1:n1-finish to verify/merge, deploy, close ticket.
-
-> **After n1-finish returns, continue to FINALIZE MEMORY — no summary, no yield.**
+If eligible, invoke n1:n1-finish once to verify/merge, deploy, and close the ticket. It returns `merged`, `open`, `skipped`, `failed`, or `escalated` and a reason; persist both as `finish_state` and `finish_reason`. Only a confirmed merge returns `merged`. Continue to FINALIZE MEMORY without yielding.

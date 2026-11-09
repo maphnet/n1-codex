@@ -91,7 +91,7 @@ gate() { # gate <queue-run-id> <cwd> <command> -> exit code of the hook
 # queue.mergeOnFinish absent + interactive auto-merge on: the exact incident config
 echo '{"git":{"defaultBranch":"main"},"finishWork":{"enabled":true,"mergeOnFinish":true}}' > "$N1_HOME/config.json"
 assert_eq "queue: gh pr merge denied"               2 "$(gate RUN1 "$WT" 'gh pr merge 12 --squash')"
-case "$(cat "$T/gate.err")" in *"queue.mergeOnFinish is not true"*) assert_eq "queue: deny reason names the key" ok ok;; *) assert_eq "queue: deny reason names the key" ok "$(cat "$T/gate.err")";; esac
+case "$(cat "$T/gate.err")" in *"queue child"*) assert_eq "queue: deny reason names child boundary" ok ok;; *) assert_eq "queue: deny reason names child boundary" ok "$(cat "$T/gate.err")";; esac
 assert_eq "queue: chained gh pr merge denied"       2 "$(gate RUN1 "$WT" 'cd /tmp && gh pr merge 12 --auto --squash --delete-branch')"
 assert_eq "queue: unspaced chain denied"            2 "$(gate RUN1 "$WT" 'true;gh pr merge 12')"
 assert_eq "queue: gh api REST merge denied"         2 "$(gate RUN1 "$WT" 'gh api -X PUT repos/o/r/pulls/12/merge')"
@@ -119,7 +119,7 @@ assert_eq "queue: gh --repo= attached flag merge denied" 2 "$(gate RUN1 "$WT" 'g
 assert_eq "queue: gh -R attached flag view allowed"   0 "$(gate RUN1 "$WT" 'gh -Rowner/repo pr view 123')"
 assert_eq "interactive: hook does not gate merges"  0 "$(gate "" "$GR" 'gh pr merge 12 --squash')"
 echo '{"queue":{"mergeOnFinish":true}}' > "$N1_HOME/config.json"
-assert_eq "queue merge on: gh pr merge allowed"     0 "$(gate RUN1 "$WT" 'gh pr merge 12 --squash')"
+assert_eq "queue legacy key: gh pr merge denied"    2 "$(gate RUN1 "$WT" 'gh pr merge 12 --squash')"
 echo '{' > "$N1_HOME/config.json"
 assert_eq "queue: broken config fails closed"       2 "$(gate RUN1 "$WT" 'gh pr merge 12')"
 echo '{"git":{"defaultBranch":"main"}}' > "$N1_HOME/config.json"
@@ -185,6 +185,12 @@ OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","s
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
 case "$CTX" in *"n1_*_val helpers, never cat config.json"*) assert_eq "compact hint points at n1_*_val helpers (N1-57)" ok ok;; *) assert_eq "compact hint points at n1_*_val helpers (N1-57)" ok "$CTX";; esac
+cp "$N1_HOME/config.json" "$T/config-before-compact.json"
+echo '{"autonomy":{"fullAuto":"true"},"finishWork":{"enabled":true,"mergeOnFinish":true}}' > "$N1_HOME/config.json"
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | CODEX_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"autonomy.fullAuto=false, finishWork.mergeOnFinish=true"*) assert_eq "compact displays strict independent grants" ok ok;; *) assert_eq "compact displays strict independent grants" ok "$CTX";; esac
+mv "$T/config-before-compact.json" "$N1_HOME/config.json"
 rm -f "$N1_HOME/active-run.json"
 # compaction restore reads this session's keyed pointer, not another session's (NP-206)
 echo '{"ticketId":"T-31","runId":"n1-run-o","worktreePath":null,"branch":"T-31"}' > "$N1_HOME/active-run.json"

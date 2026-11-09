@@ -12,8 +12,30 @@ n1_telemetry_dir() {
     fi
 }
 
+# Persist and verify a single final close before the caller clears run state.
+n1_close_run_telemetry() {
+    local dir="$1" run="$2" version="$3" ticket="$4" outcome="$5" ci="$6" finish="$7" reason="$8" tier="$9" type="${10}"
+    local raw="$dir/raw/steps/$run.jsonl" merged="$dir/runs/$run.jsonl"
+    local filter='select(.run_id == $run and (.completed_at | type == "string" and length > 0) and .final_outcome == $outcome and .ci_state == $ci and .finish_state == $finish and .finish_reason == $reason)'
+    if [ -s "$merged" ] && jq -e '.completed_at != null' "$merged" >/dev/null 2>&1; then
+        jq -e --arg run "$run" --arg outcome "$outcome" --arg ci "$ci" --arg finish "$finish" --arg reason "$reason" "$filter" "$merged" >/dev/null
+        return $?
+    fi
+    mkdir -p "$(dirname "$raw")" || return 1
+    if ! jq -e --arg run "$run" 'select(.layer == "envelope_close" and .run_id == $run)' "$raw" 2>/dev/null | grep -q .; then
+        jq -cn --arg run "$run" --arg version "$version" --arg id "$ticket" --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg outcome "$outcome" --arg tier "$tier" --arg type "$type" --arg ci "$ci" --arg finish "$finish" --arg reason "$reason" '{layer:"envelope_close",run_id:$run,n1_version:$version,ticket_id:$id,completed_at:$time,final_outcome:$outcome,estimated_tier:$tier,type:$type,ci_state:$ci,finish_state:$finish,finish_reason:$reason}' >> "$raw" || return 1
+    fi
+    bash "$N1_ROOT/hooks/telemetry-merge.sh" "$run" "$dir" || return 1
+    jq -e --arg run "$run" --arg outcome "$outcome" --arg ci "$ci" --arg finish "$finish" --arg reason "$reason" "$filter" "$merged" >/dev/null
+}
+
 # Capture immutable routing identity before any pipeline work. The compatibility
 # lock is only a pointer; hooks select the per-run lock by session identity.
+n1_run_identity() {
+    export N1_RUN_ID="$(date -u +n1-run-%Y%m%dT%H%M%SZ)-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
+    export N1_TELEMETRY_DISABLED=1
+}
+
 n1_run_begin() {
     local ticket="$1" tdir host session facts transcript
     tdir=$(n1_telemetry_dir "$ticket")
@@ -25,7 +47,8 @@ n1_run_begin() {
     fi
     export N1_SESSION_ID="$session"
     N1_VERSION=$(n1_plugin_version)
-    N1_RUN_ID="$(date -u +n1-run-%Y%m%dT%H%M%SZ)-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
+    n1_run_identity
+    unset N1_TELEMETRY_DISABLED
     export N1_RUN_ID N1_VERSION
     python3 - "$tdir" "$N1_RUN_ID" "$N1_VERSION" "$ticket" "$host" "$session" "$transcript" <<'PY'
 import json, os, pathlib, sys
@@ -47,6 +70,7 @@ PY
 }
 
 n1_emit_step_event() {
+    [ "${N1_TELEMETRY_DISABLED:-}" != 1 ] || return 0
     local run_id="$1" version="$2" ticket_id="$3" step="$4" step_number="$5" telem_dir="$6"
     shift 6
 
@@ -164,6 +188,7 @@ n1_remove_run_lock() {
 # Appends a pipeline-completion quality outcome event
 # Expected keys: review_pass_first_try, qa_pass_first_try, fix_cycles_count, total_duration_s
 n1_emit_outcome() {
+    [ "${N1_TELEMETRY_DISABLED:-}" != 1 ] || return 0
     local run_id="$1" version="$2" ticket_id="$3" tdir="$4"
     shift 4
     local outcomes="{"
@@ -186,6 +211,7 @@ n1_emit_outcome() {
 # n1_emit_compaction <run_id> <n1_version> <ticket_id> <telem_dir>
 # Emits a compaction telemetry marker when context was compacted
 n1_emit_compaction() {
+    [ "${N1_TELEMETRY_DISABLED:-}" != 1 ] || return 0
     local run_id="$1" version="$2" ticket_id="$3" telem_dir="$4"
     local ts
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -254,6 +280,7 @@ n1_record_decision() {
 # Emits a question-layer telemetry event. resolution: asked|auto|auto-decided|decide-for-me|inherited
 # question_category: design|mechanical|quality|scope
 n1_emit_question_event() {
+    [ "${N1_TELEMETRY_DISABLED:-}" != 1 ] || return 0
     local run_id="$1" version="$2" ticket_id="$3" telem_dir="$4" step="$5"
     local category="$6" resolution="$7" rungs="${8:-}"
     local ts

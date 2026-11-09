@@ -2,6 +2,8 @@
 
 ## Prerequisites
 
+Read `ciChecks.enabled` before authentication or PR resolution. If explicitly `false`, persist `ci_state: disabled` when memory exists and return `disabled` with the reason to the caller.
+
 ```bash
 gh auth status
 ```
@@ -22,7 +24,7 @@ From config:
 - `n1_config_val '.ciChecks.confidenceThreshold'` — default: `0.7`
 - `categories` — default: built-in map below
 
-If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP.**
+If `ciChecks.enabled` is explicitly `false`, persist `ci_state: disabled` when memory exists, return `disabled` with reason "CI checks are disabled", and return to the caller.
 
 **Default categories** (when config has no `ciChecks.categories`):
 
@@ -44,7 +46,7 @@ If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP
 1. `sleep 15` (initial delay).
 2. `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` — separate command.
 3. Empty/no checks → `sleep 30`, re-poll (step 2).
-4. Nothing after 15 min → "No CI checks appeared after 15 minutes." **STOP.**
+4. If a successful query is still empty after 15 min, return `no-checks`. An API failure or timeout returns `escalated`, never `no-checks`.
 5. Checks appear → Phase 2.
 
 ### Phase 2 — Poll until resolution (up to 30 min)
@@ -60,7 +62,7 @@ n1_wait_ci_checks <PR#> <remaining-minutes>
 Re-invoke while `pending` and budget remains:
 - `green` → **Step 4** (all green)
 - `red` → run `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` to enumerate failures, apply Phase 3 grace (up to 2 more `n1_wait_ci_checks` calls, `<max-minutes>` = 1), then **Step 4**
-- `pending` at budget exhaustion → report pending checks, ask "Wait longer or skip?" **STOP.**
+- `pending` at budget exhaustion → report pending checks and return `escalated`. Inaccessible or unknown results also return `escalated`.
 
 ### Phase 3 — Failure grace (max 60s)
 
@@ -73,12 +75,7 @@ Once failure detected but other checks still pending:
 
 All checks `conclusion: SUCCESS`/`NEUTRAL`/`SKIPPED`:
 - Report "All CI checks passed."
-- **Finish chaining (pipeline only):** when invoked from n1-start, decide with the same helper as the n1-start finish gate (so CI and no-CI repos reach the same outcome):
-  ```bash
-  source ~/.n1-codex/preamble.sh
-  if n1_finish_enabled; then echo "chain:yes"; else echo "chain:no"; fi
-  ```
-  `chain:yes` → continue into n1:n1-finish. `chain:no` → do not chain. Standalone runs never chain. Never chain into release.
+- Return `passed` after Step 7. CI never invokes n1:n1-finish; start owns the finish decision.
 - Go to **Step 7** (in 02-fix.md).
 
 Any `conclusion: FAILURE` → collect failures, go to **Step 5** (in 02-fix.md).

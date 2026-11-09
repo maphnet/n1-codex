@@ -9,7 +9,7 @@ effort: low
 
 ## Overview
 
-Complete the development cycle after the PR/CI stage: confirm the PR is merged (or merge it when `finishWork.mergeOnFinish` is enabled), optionally watch the deployment workflow triggered by the merge commit, optionally deploy to the project's host with `delivery.command` or the ordered `delivery.steps` list (asks first, interactive runs only), move the tracker ticket to Done, and clean up the branch/worktree.
+Complete the development cycle after the PR/CI stage: confirm or perform an authorized PR merge, optionally watch deployment, move the tracker ticket to Done, and clean up the branch/worktree.
 
 The ticket is closed **only when the code is actually merged** — never on green-CI-but-open.
 
@@ -31,7 +31,7 @@ Read the `finishWork` block via `n1_config_val`, applying defaults when keys are
 
 | Key | Default |
 |-----|---------|
-| `.finishWork.mergeOnFinish` | `false` (takes effect only with `finishWork.enabled: true`; queue children use `queue.mergeOnFinish`, default `false`. Decided by `n1_merge_allowed`) |
+| `.finishWork.mergeOnFinish` | `false` (ordinary unattended merge also requires boolean `autonomy.fullAuto: true`; queue children are denied by `n1_merge_allowed`) |
 | `.finishWork.mergeMethod` | `"squash"` (`"squash"` \| `"merge"` \| `"rebase"`) |
 | `.finishWork.deployWatch.enabled` | `false` |
 | `.finishWork.deployWatch.workflowName` | `null` (watch all runs on the merge commit) |
@@ -48,7 +48,11 @@ Read the `finishWork` block via `n1_config_val`, applying defaults when keys are
 
 Also read `git.prMode` (fallback chain: `git.prMode` → `git.draftPR: false` = `"ready"` → `"draft"`), `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`, `tracker.statuses`.
 
-`finishWork.enabled` gates only the pipeline step — standalone invocation proceeds regardless. If `finishWork` is entirely absent, all defaults apply and the skill still works as a merge-verify + close command. Whether this run may merge comes only from `n1_merge_allowed` (Step 2). Never infer it from config by hand.
+`autonomy.fullAuto` gates automatic pipeline entry; standalone invocation proceeds regardless. Legacy `finishWork.enabled` and `queue.mergeOnFinish` grant no merge authority. Whether an ordinary unattended run may merge comes from `n1_merge_allowed` (Step 2); explicit interactive approval is separate. Queue ownership remains enforced.
+
+When invoked by start, return exactly `merged`, `open`, `skipped`, `failed`, or `escalated` with a reason. Return `merged` only after the merge is confirmed; preserve open PR and run evidence on all other paths. Start owns the final telemetry close and active-run cleanup.
+
+Ordinary unattended merges require current run and PR-bound full native review evidence and the guarded merge procedure in Step 2. Queue children and final queue PRs are human-owned and never use that path, including with interactive approval.
 
 ## Steps
 

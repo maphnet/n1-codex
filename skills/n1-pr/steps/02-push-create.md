@@ -29,7 +29,7 @@ git rebase origin/${DEFAULT_BRANCH}
 **If rebase succeeds (exit 0):** Revalidate using
 `<N1_ROOT>/skills/n1-start/procedures/evaluator.md` before pushing. Changed inputs
 require reevaluation and PR-body regeneration (Phase 2 only). A failed/invalid gate
-stops. Then push using `--force-with-lease` (required because rebase rewrites history):
+stops. Rerun the full native review core on the final clean committed HEAD, or stop; a pre-rebase review is stale. Then push using `--force-with-lease` (required because rebase rewrites history):
 
 ```bash
 git push --force-with-lease -u origin ${CURRENT_BRANCH}
@@ -59,6 +59,7 @@ When `merge-base` exit 0 (already up to date), push normally:
 
 First revalidate via `<N1_ROOT>/skills/n1-start/procedures/evaluator.md`; block on
 failed/invalid output and regenerate Phase 2 if the current result changed.
+Verify the current run's full review evidence matches the final committed HEAD after all documentation and evaluation changes; rerun the full native review core or stop if it does not.
 
 ```bash
 git push -u origin ${CURRENT_BRANCH}
@@ -78,6 +79,13 @@ Draft: `gh pr create --title "<title>" --body "<body>" --base ${DEFAULT_BRANCH} 
 Ready: same without `--draft`.
 
 Capture and display PR URL.
+
+After creation, obtain its numeric PR number and atomically attach it only after the helper verifies remote repository, branch, and pushed head. A failure leaves the PR open and stops automatic finish:
+
+```bash
+source ~/.n1-codex/preamble.sh
+python3 "$N1_ROOT/scripts/n1-reviewed-head.py" attach "$ID" "$REVIEW_REPO" "$CURRENT_BRANCH" "$N1_RUN_ID" "$PR_NUMBER"
+```
 
 ## Step 5: Update Tracker (if configured)
 
@@ -125,8 +133,9 @@ Ready mode: same with `PR created:` (not bolded).
 
 Procedure for a follow-up request:
 1. Resolve the workspace: read `worktreePath` from this session's active-run file (`jq -r '.worktreePath // empty' "$(n1_active_run_file)"`). If the recorded path exists and is not under the worktree root (`n1_worktree_root`) (external worktree), use it directly. Otherwise, use `<main-checkout>/<worktree-root>/<ID>` (the worktree is still present — n1-pr no longer removes it).
-2. Resolve model for `developer`. Spawn developer with: the user's request verbatim, the branch name and worktree path, `$N1_HOME/memory/<ID>/implementation.md` path, and the directive: "Implement exactly this follow-up on the existing branch. Update any docs that reference the changed behaviour (README, CLI help). Run the relevant tests. Commit with an imperative message and push to `<branch>`. Append a `## Follow-up <N>` section to `implementation.md` (idempotent). Return: commit SHAs + one-line summaries."
+2. Resolve model for `developer`. Spawn developer with: the user's request verbatim, the branch name and worktree path, `$N1_HOME/memory/<ID>/implementation.md` path, and the directive: "Implement exactly this follow-up on the existing branch. Update any docs that reference the changed behaviour (README, CLI help). Run the relevant tests. Commit with an imperative message; do not push. Append a `## Follow-up <N>` section to `implementation.md` (idempotent). Return: commit SHAs + one-line summaries."
 3. If the change touches public behaviour (CLI flags, API, config keys): spawn `code-reviewer` on `git diff <pre-follow-up SHA>..HEAD` and route any Critical/High finding back to the developer (max 2 cycles).
+   Before any follow-up push, rerun the full native review core on its final clean commit or stop; the focused follow-up review alone cannot refresh merge evidence. Then push and reattach the PR only after remote identity and head match.
 4. Post a tracker comment via `mcp__<tracker.mcp>__<operations.addComment>`: `Follow-up pushed to PR: <one-line summary>` (warn, don't block, on failure).
 
 ## Integration

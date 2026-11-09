@@ -156,7 +156,10 @@ if [ "${TRIGGER:-}" = "compact" ]; then
             auto_mode="${auto_mode:-hands-off (default)}"
             gate_estimation=$(n1_config_val '.estimation.enabled' "$CONFIG_FILE")
             gate_local=$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")
-            gate_finish=$(n1_config_val '.finishWork.enabled' "$CONFIG_FILE")
+            gate_finish=false
+            gate_merge=false
+            if command -v jq >/dev/null 2>&1 && jq -e -s 'length == 1 and .[0].autonomy.fullAuto == true' "$CONFIG_FILE" >/dev/null 2>&1; then gate_finish=true; fi
+            if command -v jq >/dev/null 2>&1 && jq -e -s 'length == 1 and .[0].finishWork.mergeOnFinish == true' "$CONFIG_FILE" >/dev/null 2>&1; then gate_merge=true; fi
             gate_ci=$(n1_config_val '.ciChecks.enabled' "$CONFIG_FILE")
 
             N1_COMPACT_STATE="
@@ -170,7 +173,7 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
 - Branch: ${ar_branch:-unknown}
 - Loop counters: qa_fix_cycle=${ov_qa_fix:-0}, review_fix_cycle=${ov_review_fix:-0}, clean_passes=${ov_clean_passes:-0}, local_test_fix_cycle=${ov_lt_fix:-0}, ci_fix_cycle=${ov_ci_fix:-0}
 - Autonomy: mode=${auto_mode}
-- Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-true}, finishWork.enabled=${gate_finish:-false}, ciChecks.enabled=${gate_ci:-true}
+- Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-true}, autonomy.fullAuto=${gate_finish}, finishWork.mergeOnFinish=${gate_merge}, ciChecks.enabled=${gate_ci:-true}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
 - IMPORTANT: Use these values, not anything from the compacted conversation summary. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."

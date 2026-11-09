@@ -45,9 +45,8 @@ Do not populate `CHANGES` with the fresh-setup example or defaults. If no settin
     "mode": "test",
     "evaluatorGate": false
   },
-  "finishWork": {
-    "enabled": false
-  },
+  "autonomy": { "mode": "<selected>", "fullAuto": false },
+  "finishWork": { "mergeOnFinish": false },
   "release": {
     "enabled": false
   },
@@ -75,7 +74,9 @@ REPO_PATH=$(git rev-parse --show-toplevel)
 ```
 Store it as-is (WSL-native path on WSL). Do not store worktree paths — if the current directory is a worktree (`git rev-parse --git-common-dir` differs from `.git`), use `dirname "$(git rev-parse --git-common-dir)"` instead.
 
-**`queue`** keys `tag`, `maxTickets`, `subtaskTimeoutMinutes`, `mergeOnFinish` (default `false`; `true` lets queue children merge after CI), `autoResolveNonCritical` (default `false`; `true` lets the orchestrating session answer non-critical child escalations itself) fall back to `defaults/queue.json`; set them in config.json only to override.
+The example shows the default grants; write the explicitly selected booleans when the user enables either one. `finishWork.enabled` and `queue.mergeOnFinish` are retained in existing configs but confer no automatic finish or child merge authority.
+
+**`queue`** keys `tag`, `maxTickets`, `subtaskTimeoutMinutes`, `autoResolveNonCritical` (default `false`; `true` lets the orchestrating session answer non-critical child escalations itself) fall back to `defaults/queue.json`; set them in config.json only to override.
 
 The `models` object is empty by default — Codex personas inherit the session model. Only store explicitly requested Codex overrides under `models.<persona>.codex`; preserve all other hosts' values.
 

@@ -23,16 +23,22 @@ How autonomous should pipeline runs be?
   "autonomy": { "mode": "interactive" }
   ```
 
-Neither option writes individual sub-keys (`brainstorm`, `mechanicalPrompts`, etc.) — those are code defaults derived from `autonomy.mode` at runtime.
+Neither option writes individual behavioral sub-keys (`brainstorm`, `mechanicalPrompts`, etc.) — those are code defaults derived from `autonomy.mode` at runtime. Hands-off does not grant finish or merge authority.
 
 Note in the summary output: security, architecture, and public-API escalations always block regardless of this setting, and releases are always manual.
 
 ### On reconfiguration (n1-init re-run):
 
-If `autonomy` already exists in the current config:
-- If it contains only `"mode"`: show current value and re-ask (two options as above).
-- If it contains legacy sub-keys (no `"mode"` key): show a migration note —
-  `"Your config uses legacy autonomy keys. Reconfiguring will write the new single-key format."` — then re-ask.
+If `autonomy` already exists, show the current mode and re-ask. Preserve existing sub-keys.
+
+### Automatic finish and merge authority
+
+Ask two separate yes/no questions, each defaulting to No:
+
+1. Allow the pipeline to run finish automatically? Write `autonomy.fullAuto` as the selected JSON boolean.
+2. Allow unattended merging when finish runs? Write `finishWork.mergeOnFinish` as the selected JSON boolean. Both grants are required to merge; finish may run without the merge grant.
+
+On reconfiguration, show each current explicit JSON boolean; display missing or invalid values as disabled. Ask separately whether to keep, enable, or disable each setting. Keep writes nothing; enable or disable writes only that selected key. Do not infer either grant from `autonomy.mode`, `finishWork.enabled`, or `queue.mergeOnFinish`. Preserve those legacy keys and all other settings. Queue children never receive finish or merge authority from these settings; the queue coordinator has its own integration grant.
 
 ## Telemetry Configuration
 

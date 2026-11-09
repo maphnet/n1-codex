@@ -65,3 +65,5 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 | 11. CI WATCH | `steps/ci.md` | conditional |
 | 11b. FINISH WORK | `steps/finish.md` | conditional |
 | 12. FINALIZE MEMORY | `procedures/finalize.md` | |
+
+Start owns the PR → CI → finish decision → finalization sequence. CI returns a state and never invokes finish; finalization records the actual result even when finish is skipped or blocked.

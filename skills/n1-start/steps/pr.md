@@ -1,5 +1,5 @@
 
-> **After this step completes, IMMEDIATELY continue to the next pipeline step (FINALIZE MEMORY) — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
+> After this step completes, continue to CI without yielding. (Orchestrator-only: a fork ignores this.)
 
 Do not read full reports — n1-pr extracts what it needs via `grep`; tech-writer reads files directly.
 
@@ -57,5 +57,3 @@ n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "$(n1_telemetry_dir "$ID")" \
 ```
 
 Gate 3 (emitted in FINALIZE MEMORY) carries `PR: <url>` — do not print CHECKPOINT here.
-
-<!-- AUDIT N1-37: stop after n1:n1-pr is intentional — this is the Tech Lead review checkpoint. Do NOT add a continuation directive here. -->
