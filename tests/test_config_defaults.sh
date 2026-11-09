@@ -63,27 +63,34 @@ export N1_HOME="$TMPDIR_TEST/merge"
 mkdir -p "$N1_HOME"
 unset N1_QUEUE_RUN_ID
 
-echo '{}' > "$N1_HOME/config.json"
-assert_eq "T21: merge_allowed default deny" "deny" "$(mg n1_merge_allowed)"
-assert_eq "T22: finish_enabled default off" "deny" "$(mg n1_finish_enabled)"
-
-echo '{"finishWork":{"enabled":true,"mergeOnFinish":true}}' > "$N1_HOME/config.json"
-assert_eq "T23: interactive merge allowed" "allow" "$(mg n1_merge_allowed)"
-assert_eq "T24: interactive finish enabled" "allow" "$(mg n1_finish_enabled)"
-assert_eq "T25: queue ignores finishWork.mergeOnFinish (incident)" "deny" "$(N1_QUEUE_RUN_ID=RUN1 mg n1_merge_allowed)"
-assert_eq "T26: queue child skips n1-finish when merge denied" "deny" "$(N1_QUEUE_RUN_ID=RUN1 mg n1_finish_enabled)"
-
-echo '{"finishWork":{"enabled":true,"mergeOnFinish":false}}' > "$N1_HOME/config.json"
-assert_eq "T27: interactive merge denied when mergeOnFinish false" "deny" "$(mg n1_merge_allowed)"
-assert_eq "T28: interactive still enters n1-finish (human-merge path)" "allow" "$(mg n1_finish_enabled)"
-
-echo '{"finishWork":{"enabled":false,"mergeOnFinish":true}}' > "$N1_HOME/config.json"
-assert_eq "T29: mergeOnFinish needs finishWork.enabled" "deny" "$(mg n1_merge_allowed)"
-
-echo '{"queue":{"mergeOnFinish":true}}' > "$N1_HOME/config.json"
-assert_eq "T30: queue merge allowed when queue.mergeOnFinish true" "allow" "$(N1_QUEUE_RUN_ID=RUN1 mg n1_merge_allowed)"
-assert_eq "T31: queue child enters n1-finish when merge allowed" "allow" "$(N1_QUEUE_RUN_ID=RUN1 mg n1_finish_enabled)"
-assert_eq "T32: queue key does not leak into interactive runs" "deny" "$(mg n1_merge_allowed)"
+while IFS='|' read -r config finish merge; do
+  printf '%s\n' "$config" > "$N1_HOME/config.json"
+  for headless in 0 1; do
+    assert_eq "finish $config headless=$headless" "$finish" "$(N1_HEADLESS=$headless mg n1_finish_enabled)"
+    assert_eq "merge $config headless=$headless" "$merge" "$(N1_HEADLESS=$headless mg n1_merge_allowed)"
+    assert_eq "queue finish $config" deny "$(N1_QUEUE_RUN_ID=RUN1 N1_HEADLESS=$headless mg n1_finish_enabled)"
+    assert_eq "queue merge $config" deny "$(N1_QUEUE_RUN_ID=RUN1 N1_HEADLESS=$headless mg n1_merge_allowed)"
+  done
+done <<'CASES'
+{}|deny|deny
+{|deny|deny
+{} {"autonomy":{"fullAuto":true},"finishWork":{"mergeOnFinish":true}}|deny|deny
+{"autonomy":{"mode":"hands-off"}}|deny|deny
+{"finishWork":{"enabled":true,"mergeOnFinish":true},"queue":{"mergeOnFinish":true}}|deny|deny
+{"finishWork":{"enabled":false,"mergeOnFinish":true}}|deny|deny
+{"autonomy":{"fullAuto":"true"},"finishWork":{"mergeOnFinish":true}}|deny|deny
+{"autonomy":{"fullAuto":true},"finishWork":{"mergeOnFinish":"true"}}|allow|deny
+{"autonomy":{"fullAuto":false},"finishWork":{"mergeOnFinish":true}}|deny|deny
+{"autonomy":{"fullAuto":true},"finishWork":{"mergeOnFinish":false}}|allow|deny
+{"autonomy":{"fullAuto":true},"finishWork":{"enabled":false,"mergeOnFinish":true},"queue":{"mergeOnFinish":true}}|allow|allow
+{"autonomy":{"fullAuto":true},"finishWork":{"enabled":true,"mergeOnFinish":true}}|allow|allow
+CASES
+rm "$N1_HOME/config.json"
+assert_eq "missing config denies finish" deny "$(mg n1_finish_enabled)"
+assert_eq "missing config denies merge" deny "$(mg n1_merge_allowed)"
+printf '%s\n' '{"autonomy":{"fullAuto":true},"finishWork":{"mergeOnFinish":true}}' > "$N1_HOME/config.json"
+assert_eq "missing jq denies finish" deny "$(PATH=/nonexistent mg n1_finish_enabled)"
+assert_eq "missing jq denies merge" deny "$(PATH=/nonexistent mg n1_merge_allowed)"
 
 # ---- Test group 5: one decision path in skills, CI and no-CI alike (NP-212) ----
 SK="$SCRIPT_DIR/../skills"

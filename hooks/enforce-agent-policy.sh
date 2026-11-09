@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 INPUT=$(cat)
 
 # Fast path: persona payloads always go to Python; merge/push-shaped commands only inside
-# queue children (Case 3, NP-212). Broad globs on purpose: Python does the real (word-boundary,
+# queue children regardless of legacy merge settings (Case 3, NP-212). Broad globs on purpose: Python does the real (word-boundary,
 # quote-stripped, case-insensitive) scan -- this glob only decides whether to invoke it.
 # The gh branch matches "erge" (not "merge") — case matters in a bash `case` glob, and
 # GitHub's enablePullRequestAutoMerge mutation has a capital M.

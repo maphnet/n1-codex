@@ -9,8 +9,8 @@ Case 2 - spawn model override. For spawn tools targeting an N1 persona, rewrite 
 from config `models.<persona>` (string, or a legacy host-keyed object read through its
 "claude-code" key).
 
-Case 3 - queue merge gate (NP-212). Only in queue children (env N1_QUEUE_RUN_ID set) and only
-when config queue.mergeOnFinish is not true: deny Bash commands whose raw text names a merge
+Case 3 - queue merge gate (NP-212). In queue children (env N1_QUEUE_RUN_ID set), deny
+Bash commands whose raw text names a merge
 action - `gh ... pr ... merge`, `gh ... api ...` mentioning merge/mergePullRequest/
 enablePullRequestAutoMerge, `git ... merge`, or `git ... push` naming git.defaultBranch (default
 "main"). This is a plain case-insensitive text scan over the whole command string (quotes and
@@ -147,8 +147,6 @@ def merge_deny(payload: dict, config: dict) -> int:
     run_id = os.environ.get("N1_QUEUE_RUN_ID")
     if not run_id:
         return 0
-    if _dict(config.get("queue")).get("mergeOnFinish") is True:
-        return 0
     tool_input = _dict(payload.get("tool_input"))
     command = tool_input.get("command") or tool_input.get("cmd")
     if isinstance(command, list):
@@ -170,7 +168,7 @@ def merge_deny(payload: dict, config: dict) -> int:
     )
     if not (is_merge or is_push_to_default):
         return 0
-    sys.stderr.write(f"N1: merge denied in queue run {run_id} -- queue.mergeOnFinish is not true; "
+    sys.stderr.write(f"N1: merge denied in queue child {run_id}; "
                      f"the ticket stops after PR + CI\n")
     return 2
 
