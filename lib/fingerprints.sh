@@ -38,6 +38,22 @@ n1_fingerprint_append() {
         "$fp" "$fid" "$severity" "$status" "$cycle" "$ts" >> "$jsonl_file"
 }
 
+n1_fingerprint_record() {
+    local jsonl_file="$1" tsv="$2" cycle="${3:-1}" line rest id sev file title rc=0 tab=$'\t'
+    [ -r "$tsv" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "${line//[$'\r ']/}" ] || continue
+        case "$line" in *"$tab"*"$tab"*"$tab"*) ;; *) echo "n1_fingerprint_record: skipping malformed line" >&2; rc=1; continue ;; esac
+        id=${line%%"$tab"*}; rest=${line#*"$tab"}
+        sev=${rest%%"$tab"*}; rest=${rest#*"$tab"}
+        file=${rest%%"$tab"*}; title=${rest#*"$tab"}
+        [[ "$id" =~ ^[A-Z]+-[0-9]+$ && "$sev" =~ ^(Critical|High|Medium|Low)$ && -n "${title//[$'\r ']/}" ]] || { echo "n1_fingerprint_record: skipping invalid line" >&2; rc=1; continue; }
+        n1_fingerprint_append "$jsonl_file" "$(n1_fingerprint_finding "$file" "$title")" "$id" "$sev" active "$cycle" || rc=1
+    done < "$tsv"
+    if [ "$rc" -eq 0 ]; then rm -f "$tsv" || rc=1; else mv -f "$tsv" "$tsv.rejected" || rc=1; fi
+    return "$rc"
+}
+
 n1_fingerprint_known() {
     # Usage: n1_fingerprint_known <jsonl_file> <fingerprint>
     # Exit 0 if fingerprint exists, 1 otherwise
