@@ -3,8 +3,8 @@
 ## Prerequisites
 
 ```bash
-CURRENT_BRANCH=$(git branch --show-current)
 source ~/.n1-codex/preamble.sh
+CURRENT_BRANCH=$(git branch --show-current)
 DEFAULT_BRANCH=${N1_PR_BASE:-$(n1_config_val '.git.defaultBranch')}
 ```
 
