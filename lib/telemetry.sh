@@ -12,6 +12,23 @@ n1_telemetry_dir() {
     fi
 }
 
+# Persist and verify a single final close before the caller clears run state.
+n1_close_run_telemetry() {
+    local dir="$1" run="$2" version="$3" ticket="$4" outcome="$5" ci="$6" finish="$7" reason="$8" tier="$9" type="${10}"
+    local raw="$dir/raw/steps/$run.jsonl" merged="$dir/runs/$run.jsonl"
+    local filter='select(.run_id == $run and (.completed_at | type == "string" and length > 0) and .final_outcome == $outcome and .ci_state == $ci and .finish_state == $finish and .finish_reason == $reason)'
+    if [ -s "$merged" ] && jq -e '.completed_at != null' "$merged" >/dev/null 2>&1; then
+        jq -e --arg run "$run" --arg outcome "$outcome" --arg ci "$ci" --arg finish "$finish" --arg reason "$reason" "$filter" "$merged" >/dev/null
+        return $?
+    fi
+    mkdir -p "$(dirname "$raw")" || return 1
+    if ! jq -e --arg run "$run" 'select(.layer == "envelope_close" and .run_id == $run)' "$raw" 2>/dev/null | grep -q .; then
+        jq -cn --arg run "$run" --arg version "$version" --arg id "$ticket" --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg outcome "$outcome" --arg tier "$tier" --arg type "$type" --arg ci "$ci" --arg finish "$finish" --arg reason "$reason" '{layer:"envelope_close",run_id:$run,n1_version:$version,ticket_id:$id,completed_at:$time,final_outcome:$outcome,estimated_tier:$tier,type:$type,ci_state:$ci,finish_state:$finish,finish_reason:$reason}' >> "$raw" || return 1
+    fi
+    bash "$N1_ROOT/hooks/telemetry-merge.sh" "$run" "$dir" || return 1
+    jq -e --arg run "$run" --arg outcome "$outcome" --arg ci "$ci" --arg finish "$finish" --arg reason "$reason" "$filter" "$merged" >/dev/null
+}
+
 # Capture immutable routing identity before any pipeline work. The compatibility
 # lock is only a pointer; hooks select the per-run lock by session identity.
 n1_run_begin() {

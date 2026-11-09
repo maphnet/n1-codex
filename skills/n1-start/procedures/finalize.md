@@ -12,23 +12,12 @@ source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/telemetry.sh"
 RESOLVED_TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
 TELEMETRY_DIR=$(n1_telemetry_dir "$ID")
-RAW="$TELEMETRY_DIR/raw/steps/$N1_RUN_ID.jsonl"
-MERGED="$TELEMETRY_DIR/runs/$N1_RUN_ID.jsonl"
-mkdir -p "$(dirname "$RAW")"
-# A retry must recognize an existing envelope_close for this authoritative run.
-if ! jq -e --arg run "$N1_RUN_ID" 'select(.layer == "envelope_close" and .run_id == $run)' "$RAW" "$MERGED" 2>/dev/null | grep -q .; then
-  jq -n --arg run "$N1_RUN_ID" --arg version "$N1_VERSION" --arg id "$ID" --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg outcome "$FINAL_OUTCOME" --arg tier "$ESTIMATED_TIER" --arg type "$RESOLVED_TYPE" --arg ci "$CI_STATE" --arg finish "$FINISH_STATE" --arg reason "$FINISH_REASON" '{layer:"envelope_close",run_id:$run,n1_version:$version,ticket_id:$id,completed_at:$time,final_outcome:$outcome,estimated_tier:$tier,type:$type,ci_state:$ci,finish_state:$finish,finish_reason:$reason}' >> "$RAW"
-fi
+n1_close_run_telemetry "$TELEMETRY_DIR" "$N1_RUN_ID" "$N1_VERSION" "$ID" "$FINAL_OUTCOME" "$CI_STATE" "$FINISH_STATE" "$FINISH_REASON" "$ESTIMATED_TIER" "$RESOLVED_TYPE" || { echo "Telemetry close or verification failed; retain active run for retry" >&2; return; }
+n1_remove_run_lock "$TELEMETRY_DIR" "$N1_RUN_ID"
 ```
 Set these variables from the persisted fields before closing. `$ESTIMATED_TIER` is the estimation tier or empty. Serialize finalization for the run; do not append a second close on retry, even if the first close is already merged.
 
-```bash
-source ~/.n1-codex/preamble.sh
-source "$N1_ROOT/lib/telemetry.sh"
-bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "$TELEMETRY_DIR" || { echo "Telemetry merge failed; retain active run for retry" >&2; return; }
-[ -s "$MERGED" ] || { echo "Telemetry output missing; retain active run for retry" >&2; return; }
-n1_remove_run_lock "$TELEMETRY_DIR" "$N1_RUN_ID"
-```
+The helper recognizes an existing envelope_close in raw events and a completed record in the merged schema separately. It verifies the run identity and all completion fields before removing the lock or clearing active state; conflicting merged evidence stops for investigation.
 
 After the close is persisted and merged (or telemetry is disabled), clear active-run:
 ```bash
