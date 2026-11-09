@@ -78,6 +78,7 @@ No `[TQ-N]` Medium+ → skip. Else `n1_resolve_agent qa-engineer review`+split; 
 **PASS:** Only after the full-scope code review and every required security review pass, with no pending TQ fixes, verify the frozen tree and HEAD again. For `REVIEW_TIER=FULL` and `INCREMENTAL=false`, atomically record the captured head (never substitute a later HEAD):
 
 ```bash
+source ~/.n1-codex/preamble.sh
 n1_tree_verify "$TREE_BEFORE" && python3 "$N1_ROOT/scripts/n1-reviewed-head.py" record "$ID" "$REVIEW_REPO" "$REVIEW_BRANCH" "$N1_RUN_ID" "$REVIEW_HEAD" FULL pass <pass-or-not-required>
 ```
 

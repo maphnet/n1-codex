@@ -13,6 +13,7 @@ Read the current PR state. If already `MERGED`, capture its merge SHA and go to 
 For an ordinary unattended run, require `n1_merge_allowed`, CI state `passed`, `no-checks`, or `disabled`, and current run-bound evidence. Invoke exactly once:
 
 ```bash
+source ~/.n1-codex/preamble.sh
 python3 "$N1_ROOT/scripts/n1-reviewed-head.py" merge "$ID" "$REVIEW_REPO" "$CURRENT_BRANCH" "$N1_RUN_ID" "$PR_NUMBER" "$MERGE_METHOD" "$CI_STATE"
 ```
 
@@ -21,6 +22,7 @@ The helper verifies the current PR identity and head, current checks and review 
 When unattended authority is absent, present the current PR, CI and review-thread results and prompt exactly: `Proceed with merge? (yes / no — fix first)`. On `no`, or any answer other than exact `yes`, return `open` and preserve the ticket and evidence. On exact `yes`, record `interactive approval: yes` in `overview.md`, set `N1_INTERACTIVE_APPROVED=yes`, and invoke the same helper with `interactive-merge`:
 
 ```bash
+source ~/.n1-codex/preamble.sh
 read -r APPROVAL
 [ "$APPROVAL" = yes ] || { echo 'Merge not approved; PR remains open.'; exit 0; }
 N1_INTERACTIVE_APPROVED=yes python3 "$N1_ROOT/scripts/n1-reviewed-head.py" interactive-merge "$ID" "$REVIEW_REPO" "$CURRENT_BRANCH" "$N1_RUN_ID" "$PR_NUMBER" "$MERGE_METHOD" "$CI_STATE"

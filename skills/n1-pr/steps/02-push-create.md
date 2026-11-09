@@ -83,6 +83,7 @@ Capture and display PR URL.
 After creation, obtain its numeric PR number and atomically attach it only after the helper verifies remote repository, branch, and pushed head. A failure leaves the PR open and stops automatic finish:
 
 ```bash
+source ~/.n1-codex/preamble.sh
 python3 "$N1_ROOT/scripts/n1-reviewed-head.py" attach "$ID" "$REVIEW_REPO" "$CURRENT_BRANCH" "$N1_RUN_ID" "$PR_NUMBER"
 ```
 

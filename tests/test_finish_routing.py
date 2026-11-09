@@ -9,6 +9,14 @@ def read(path):
 
 
 class FinishRouting(unittest.TestCase):
+    def test_init_and_architecture_do_not_describe_legacy_authority(self):
+        init = read('skills/n1-init/steps/09-finish-release.md').split('## Delivery (SSH deploy)')[0]
+        architecture = read('references/architecture.md')
+        self.assertNotIn('"enabled": true', init)
+        self.assertNotIn('gh pr merge --auto', init)
+        self.assertNotIn('gh pr merge --auto', architecture)
+        self.assertNotIn('n1-ci chaining', architecture)
+
     def test_start_owns_routing(self):
         pr = read('skills/n1-start/steps/pr.md')
         ci = read('skills/n1-start/steps/ci.md')
