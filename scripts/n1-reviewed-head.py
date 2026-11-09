@@ -82,12 +82,14 @@ def main():
         data['pr'] = pr
         save(path, data)
         return
-    require(action == 'merge' and len(args) == 3, 'Invalid action')
+    require(action in ('merge', 'interactive-merge') and len(args) == 3, 'Invalid action')
     method, ci = args[1:]
     require(method in ('squash', 'merge', 'rebase') and ci in ('passed', 'no-checks', 'disabled'), 'Invalid merge method or CI state')
     require(data.get('pr') == pr and not os.environ.get('N1_QUEUE_RUN_ID'), 'PR or queue ownership mismatch')
     config = json.loads((home / 'config.json').read_text())
-    require(config.get('autonomy', {}).get('fullAuto') is True and config.get('finishWork', {}).get('mergeOnFinish') is True, 'Merge grants missing')
+    unattended = action == 'merge'
+    require((not unattended and os.environ.get('N1_INTERACTIVE_APPROVED') == 'yes') or
+            (unattended and config.get('autonomy', {}).get('fullAuto') is True and config.get('finishWork', {}).get('mergeOnFinish') is True), 'Merge grants missing')
     for state_path in (home / 'queue').glob('*/state.json'):
         state = json.loads(state_path.read_text())
         origin = state.get('origin_repo')

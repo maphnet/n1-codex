@@ -56,7 +56,7 @@ print((root/name).read_text())
 
     def run_guard(self, action='merge', *args):
         if not args:
-            args = ('4', 'squash', 'passed') if action == 'merge' else ('4',)
+            args = ('4', 'squash', 'passed') if action in ('merge', 'interactive-merge') else ('4',)
         return subprocess.run(['python3', str(SCRIPT), action, 'T', 'o/r', 'feature', 'run', *args], env=self.env, capture_output=True, text=True)
 
     def test_success_and_exact_head(self):
@@ -114,6 +114,12 @@ print((root/name).read_text())
         self.assertNotEqual(self.run_guard('attach').returncode, 0)
         (self.root/'pr').unlink()
         self.assertNotEqual(self.run_guard().returncode, 0)
+
+    def test_interactive_approval_allows_merge_without_unattended_grants(self):
+        self.write('config.json', {'autonomy': {'fullAuto': False}, 'finishWork': {'mergeOnFinish': False}})
+        self.env['N1_INTERACTIVE_APPROVED'] = 'yes'
+        result = self.run_guard('interactive-merge')
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == '__main__':

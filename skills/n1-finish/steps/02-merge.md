@@ -18,7 +18,15 @@ python3 "$N1_ROOT/scripts/n1-reviewed-head.py" merge "$ID" "$REVIEW_REPO" "$CURR
 
 The helper verifies the current PR identity and head, current checks and review threads, repeats those checks immediately before the single `gh pr merge --match-head-commit` call, and returns `merged <sha>` only after GitHub confirms the merge. A failed command, API failure, drift, unresolved feedback, pending checks, pagination uncertainty, or still-open/enqueued PR stops with `escalated`; preserve pending evidence. Never use `--auto`, retry without head protection, or bypass protection. Continue to deploy and close only after `merged <sha>`.
 
-When unattended authority is absent, an ordinary interactive user may explicitly approve a merge after reviewing the current PR and its feedback. Queue ownership still cannot be overridden. Otherwise return `open` and preserve the ticket and evidence.
+When unattended authority is absent, present the current PR, CI and review-thread results and prompt exactly: `Proceed with merge? (yes / no — fix first)`. On `no`, or any answer other than exact `yes`, return `open` and preserve the ticket and evidence. On exact `yes`, record `interactive approval: yes` in `overview.md`, set `N1_INTERACTIVE_APPROVED=yes`, and invoke the same helper with `interactive-merge`:
+
+```bash
+read -r APPROVAL
+[ "$APPROVAL" = yes ] || { echo 'Merge not approved; PR remains open.'; exit 0; }
+N1_INTERACTIVE_APPROVED=yes python3 "$N1_ROOT/scripts/n1-reviewed-head.py" interactive-merge "$ID" "$REVIEW_REPO" "$CURRENT_BRANCH" "$N1_RUN_ID" "$PR_NUMBER" "$MERGE_METHOD" "$CI_STATE"
+```
+
+The helper repeats all identity, head, checks and unresolved-review guards and confirms `MERGED`; a failure returns `escalated`. Queue ownership still cannot be overridden.
 
 ## Step 2b: Local Merge (no-PR path, `prMode == "skip"` only)
 
