@@ -2,26 +2,35 @@
 
 ## Finalize Memory (Step 12)
 
-Update overview.md: all checkboxes checked; `step: done`; add `docs_updated` field if doc updates occurred; add final status line.
+Update overview.md with only completed steps checked; preserve uncompleted checkboxes and `## Pending` for an open PR, including skipped, failed, or escalated finish. Set `step: done` and remove Pending only after a confirmed merge; otherwise retain the last completed step and resume evidence. Add `docs_updated` if appropriate. Persist frontmatter `ci_state`, `finish_state`, `finish_reason`, and `final_outcome`, and a truthful final status line.
+
+Determine `final_outcome` from evidence: `merged` only after confirmed merge, `pr_skipped` when PR creation was intentionally skipped, `failed` or `escalated` when the run failed or requires intervention, otherwise `pr_created` for an open PR, including an intentionally skipped finish. An asynchronous or still-open merge is never `merged`.
 
 **Telemetry (if enabled):**
 ```bash
 source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/telemetry.sh"
 RESOLVED_TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
-echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$FINAL_OUTCOME"'","estimated_tier":"'"$ESTIMATED_TIER"'","type":"'"$RESOLVED_TYPE"'"}' >> "$(n1_telemetry_dir "$ID")/raw/steps/$N1_RUN_ID.jsonl"
+TELEMETRY_DIR=$(n1_telemetry_dir "$ID")
+RAW="$TELEMETRY_DIR/raw/steps/$N1_RUN_ID.jsonl"
+MERGED="$TELEMETRY_DIR/runs/$N1_RUN_ID.jsonl"
+mkdir -p "$(dirname "$RAW")"
+# A retry must recognize an existing envelope_close for this authoritative run.
+if ! jq -e --arg run "$N1_RUN_ID" 'select(.layer == "envelope_close" and .run_id == $run)' "$RAW" "$MERGED" 2>/dev/null | grep -q .; then
+  jq -n --arg run "$N1_RUN_ID" --arg version "$N1_VERSION" --arg id "$ID" --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg outcome "$FINAL_OUTCOME" --arg tier "$ESTIMATED_TIER" --arg type "$RESOLVED_TYPE" --arg ci "$CI_STATE" --arg finish "$FINISH_STATE" --arg reason "$FINISH_REASON" '{layer:"envelope_close",run_id:$run,n1_version:$version,ticket_id:$id,completed_at:$time,final_outcome:$outcome,estimated_tier:$tier,type:$type,ci_state:$ci,finish_state:$finish,finish_reason:$reason}' >> "$RAW"
+fi
 ```
-`$FINAL_OUTCOME`: `pr_created`/`pr_skipped`/`escalated`/`failed`. `$ESTIMATED_TIER`: estimation tier or empty.
+Set these variables from the persisted fields before closing. `$ESTIMATED_TIER` is the estimation tier or empty. Serialize finalization for the run; do not append a second close on retry, even if the first close is already merged.
 
 ```bash
 source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/telemetry.sh"
-bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "$(n1_telemetry_dir "$ID")" 2>&1 || echo "⚠ Telemetry merge failed" >&2
-MERGED="$(n1_telemetry_dir "$ID")/runs/$N1_RUN_ID.jsonl"
-[ -s "$MERGED" ] && n1_remove_run_lock "$(n1_telemetry_dir "$ID")" "$N1_RUN_ID"
+bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "$TELEMETRY_DIR" || { echo "Telemetry merge failed; retain active run for retry" >&2; return; }
+[ -s "$MERGED" ] || { echo "Telemetry output missing; retain active run for retry" >&2; return; }
+n1_remove_run_lock "$TELEMETRY_DIR" "$N1_RUN_ID"
 ```
 
-Clear active-run:
+After the close is persisted and merged (or telemetry is disabled), clear active-run:
 ```bash
 source ~/.n1-codex/preamble.sh
 n1_active_run_clear

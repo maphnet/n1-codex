@@ -98,6 +98,8 @@ Present remaining failures and fix history, then offer:
 
 ## Step 7: Report & Memory Update
 
+Return exactly one state and a reason to the caller: `passed`, `no-checks`, `disabled`, `failed`, or `escalated`. Remaining red checks, including an explicit skip, are `failed`; unresolved, inaccessible, unknown, or timed-out checks are `escalated`. Persist `ci_state` when memory exists. Standalone CI returns to its caller and never invokes finish.
+
 ### Update overview.md (if memory exists):
 ```markdown
 ## CI Status

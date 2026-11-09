@@ -22,7 +22,7 @@
    ```
    Also delete the `## Pending` section from overview.md if present (the merge is no longer pending). If finish exits without a merge (timeout paths), instead set `step` to `finish` (not `done`) and update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`.
 
-   Also clear the active-run pointer on successful completion (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY):
+   When invoked by n1-start, preserve the active-run pointer and all evidence until n1-start owns finalization and closes telemetry. For a standalone finish only, clear the active-run pointer on successful completion:
    ```bash
    source ~/.n1-codex/preamble.sh
    n1_active_run_clear

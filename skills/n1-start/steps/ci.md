@@ -1,23 +1,7 @@
+**CI state.** For `prMode: skip`, no PR exists: set `ci_state: disabled` with reason `PR skipped` and continue to the finish decision.
 
-**If `prMode` is `"skip"`**: no PR; skip ci gate/n1-ci; continue.
+Read `ciChecks.enabled` (default `true`) and record the ci-gate decision as declared in `pipeline.json`. If explicitly false, persist `ci_state: disabled` and continue to the finish decision. Otherwise invoke n1:n1-ci with the created PR number and persist its returned state and reason.
 
-Run `n1_config_val '.ciChecks.enabled'` (default: `true`).
+The only returned states are `passed`, `no-checks`, `disabled`, `failed`, and `escalated`. A successful empty CI query after the registration window gives `no-checks`; an API failure, timeout, pending, inaccessible, or unknown result gives `escalated`. A remaining failing check gives `failed`, including when the user skips a red check. Only mark `[x] CI` for completed `passed` or `no-checks` monitoring. Always continue to the finish decision, which blocks failed and escalated states.
 
-```bash
-source ~/.n1-codex/preamble.sh
-GATE_ENABLED=$(n1_config_val '.ciChecks.enabled' 2>/dev/null || echo 'true')
-n1_record_decision ci-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"ciChecks.enabled"}' "enabled=${GATE_ENABLED:-true}"
-```
-
-> The gate key (`ciChecks.enabled`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
-
-**If `ciChecks.enabled` is `false`:** Skip to FINALIZE MEMORY.
-
-**REQUIRED SUB-SKILL:** Use n1:n1-ci to monitor CI checks and fix failures. Pass it the PR number from the PR creation step above.
-
-**After n1-ci returns:**
-- If all checks passed (with or without fixes) → update overview: `[x] CI`, set `step: ci`, then continue to FINALIZE
-- If user chose "skip" (CI still red) → continue to FINALIZE with CI status noted
-- If user is still providing guidance → wait (n1-ci handles the interaction)
-
-> **After `n1:n1-ci` returns, IMMEDIATELY continue to the next pipeline step (finish if enabled, otherwise FINALIZE MEMORY) -- do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
+These ordinary PR states do not weaken the queue coordinator's separate requirement for nonempty head-bound CI checks.
