@@ -137,9 +137,9 @@ Also record each confirmed Critical/High finding's fingerprint after every revie
 source ~/.n1-codex/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
-# For each confirmed Critical/High finding:
-FP=$(n1_fingerprint_finding "<file>" "<title>")
-n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "<cycle>"
+# For each confirmed Critical/High finding, write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism,
+# one tab-separated line <id><TAB><severity><TAB><file><TAB><title>; never put a title or path in a shell command, variable or double-quoted string.
+if [ -r "$N1_HOME/memory/$ID/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$N1_HOME/memory/$ID/fp-new.tsv" "$CYCLE"; fi
 ```
 
 **Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `cycle > 0`:

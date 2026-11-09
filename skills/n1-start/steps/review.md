@@ -69,7 +69,13 @@ TQ_MAX=$(n1_config_val '.tq.maxFixAttempts' '2')
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"
 n1_step_end "review" 9 "success"
 ```
-For each Critical/High: `n1_fingerprint_append "$FP_FILE" "$(n1_fingerprint_finding "<file>" "<title>")" "<id>" "<severity>" "active" "$CYCLE"`. Non-convergence→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+For each Critical/High, write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one tab-separated line `<id><TAB><severity><TAB><file><TAB><title>`; never put a title or path in a shell command, variable or double-quoted string. Then:
+
+```bash
+if [ -r "$N1_HOME/memory/$ID/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$N1_HOME/memory/$ID/fp-new.tsv" "$CYCLE"; fi
+```
+
+Malformed or failed rows escalate. Non-convergence→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ### 7b. TQ FIX LOOP
 
